@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Verification Queue - GenAI Academy 2.0{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">
+    <i class="bi bi-clock-history"></i> Verification Queue
+</h2>
+
+<!-- Pending Badges -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="bi bi-hourglass-split"></i> Pending Badge Verifications
+        </h5>
+        <span class="badge badge-pending">{{ pending_badges|length }}</span>
+    </div>
+    <div class="card-body">
+        {% if pending_badges %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Problem Statement</th>
+                            <th>Badge Link</th>
+                            <th>Submitted</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for badge in pending_badges %}
+                        <tr>
+                            <td>
+                                <a href="/user/{{ badge.email }}">{{ badge.email }}</a>
+                            </td>
+                            <td>{{ badge.problem_statement }}</td>
+                            <td>
+                                {% if badge.share_skill_badge_public_link %}
+                                    <a href="{{ badge.share_skill_badge_public_link }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-box-arrow-up-right"></i> View
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted">No link</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small class="text-muted">
+                                    {{ badge.created_at.strftime('%Y-%m-%d %H:%M') if badge.created_at else '-' }}
+                                </small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-4">
+                <i class="bi bi-check-circle text-success" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-3">All badges verified!</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Pending Profiles -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="bi bi-hourglass-split"></i> Pending Profile Verifications
+        </h5>
+        <span class="badge badge-pending">{{ pending_profiles|length }}</span>
+    </div>
+    <div class="card-body">
+        {% if pending_profiles %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Profile Link</th>
+                            <th>Submitted</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for profile in pending_profiles %}
+                        <tr>
+                            <td>
+                                <a href="/user/{{ profile.email }}">{{ profile.email }}</a>
+                            </td>
+                            <td>
+                                <a href="{{ profile.google_cloud_skills_boost_profile_link }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-box-arrow-up-right"></i> View Profile
+                                </a>
+                            </td>
+                            <td>
+                                <small class="text-muted">
+                                    {{ profile.created_at.strftime('%Y-%m-%d %H:%M') if profile.created_at else '-' }}
+                                </small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-4">
+                <i class="bi bi-check-circle text-success" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-3">All profiles verified!</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Failed Badges -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="bi bi-x-circle"></i> Failed Badge Verifications
+        </h5>
+        <span class="badge badge-failed">{{ failed_badges|length }}</span>
+    </div>
+    <div class="card-body">
+        {% if failed_badges %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Problem Statement</th>
+                            <th>Badge Link</th>
+                            <th>Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for badge in failed_badges[:50] %}
+                        <tr>
+                            <td>
+                                <a href="/user/{{ badge.email }}">{{ badge.email }}</a>
+                            </td>
+                            <td>{{ badge.problem_statement }}</td>
+                            <td>
+                                {% if badge.share_skill_badge_public_link %}
+                                    <a href="{{ badge.share_skill_badge_public_link }}" target="_blank" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-box-arrow-up-right"></i> View
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted">No link</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small class="text-danger">{{ badge.remarks or 'Verification failed' }}</small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if failed_badges|length > 50 %}
+                <p class="text-muted text-center mb-0">Showing first 50 of {{ failed_badges|length }} failed verifications</p>
+            {% endif %}
+        {% else %}
+            <div class="text-center py-4">
+                <i class="bi bi-emoji-smile text-success" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-3">No failed verifications!</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Failed Profiles -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="bi bi-x-circle"></i> Failed Profile Verifications
+        </h5>
+        <span class="badge badge-failed">{{ failed_profiles|length }}</span>
+    </div>
+    <div class="card-body">
+        {% if failed_profiles %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Profile Link</th>
+                            <th>Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for profile in failed_profiles[:50] %}
+                        <tr>
+                            <td>
+                                <a href="/user/{{ profile.email }}">{{ profile.email }}</a>
+                            </td>
+                            <td>
+                                <a href="{{ profile.google_cloud_skills_boost_profile_link }}" target="_blank" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-box-arrow-up-right"></i> View Profile
+                                </a>
+                            </td>
+                            <td>
+                                <small class="text-danger">{{ profile.remarks or 'Verification failed' }}</small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if failed_profiles|length > 50 %}
+                <p class="text-muted text-center mb-0">Showing first 50 of {{ failed_profiles|length }} failed verifications</p>
+            {% endif %}
+        {% else %}
+            <div class="text-center py-4">
+                <i class="bi bi-emoji-smile text-success" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-3">No failed verifications!</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

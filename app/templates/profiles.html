@@ -1,0 +1,781 @@
+{% extends "base.html" %}
+
+{% block title %}User Profiles - GenAI Academy 2.0{% endblock %}
+
+{% block extra_css %}
+<style>
+    .search-section {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+    }
+    .profile-card {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        overflow: hidden;
+    }
+    .profile-header {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        padding: 20px;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+    .profile-section {
+        padding: 25px;
+    }
+    .info-row {
+        display: flex;
+        margin-bottom: 15px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid #e9ecef;
+    }
+    .info-row:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+    .info-label {
+        font-weight: 600;
+        color: #6c757d;
+        width: 180px;
+        flex-shrink: 0;
+    }
+    .info-value {
+        color: #212529;
+        flex-grow: 1;
+    }
+    .section-header {
+        background: var(--primary-color);
+        color: white;
+        padding: 15px 25px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .badge-count {
+        background: rgba(255,255,255,0.3);
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+    }
+    .no-data {
+        color: #6c757d;
+        font-style: italic;
+        padding: 25px;
+        text-align: center;
+    }
+    .badge-item {
+        background: #f8f9fa;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 8px;
+        border-left: 4px solid var(--primary-color);
+    }
+    .badge-verified {
+        border-left-color: #28a745;
+    }
+    .badge-failed {
+        border-left-color: #dc3545;
+    }
+    .badge-pending {
+        border-left-color: #ffc107;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 5px 12px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+    .status-verified {
+        background: #28a745;
+        color: white;
+    }
+    .status-failed {
+        background: #dc3545;
+        color: white;
+    }
+    .status-pending {
+        background: #ffc107;
+        color: #000;
+    }
+    .search-results {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+    }
+    .result-item {
+        padding: 15px;
+        border-bottom: 1px solid #e9ecef;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .result-item:hover {
+        background: #f8f9fa;
+    }
+    .result-item:last-child {
+        border-bottom: none;
+    }
+    .back-btn {
+        margin-bottom: 20px;
+    }
+    .masterclass-item {
+        background: #f8f9fa;
+        padding: 12px 15px;
+        margin-bottom: 10px;
+        border-radius: 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .link-text {
+        color: var(--primary-color);
+        word-break: break-all;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">
+    <i class="bi bi-person-circle"></i> User Profiles
+</h2>
+
+<!-- Search Section -->
+<div class="search-section">
+    <div class="row">
+        <div class="col-md-8">
+            <input type="text" class="form-control form-control-lg" id="searchInput" 
+                   placeholder="Search by name, email, phone number, or city...">
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-outline-primary btn-lg w-100" onclick="toggleAdvancedFilters()">
+                <i class="bi bi-sliders"></i> Filters
+            </button>
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-primary btn-lg w-100" onclick="searchUsers()">
+                <i class="bi bi-search"></i> Search
+            </button>
+        </div>
+    </div>
+    
+    <!-- Advanced Filters (Collapsible) -->
+    <div id="advancedFiltersContainer" style="display:none; margin-top: 20px;">
+        <hr>
+        <h6 class="mb-3"><i class="bi bi-sliders"></i> Advanced Filters</h6>
+        <div class="row">
+            <!-- Gender Filter -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">Gender</label>
+                <select class="form-select" id="filter_gender">
+                    <option value="">All</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="OTHER">Other</option>
+                </select>
+            </div>
+            
+            <!-- Occupation Filter -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">Occupation</label>
+                <select class="form-select" id="filter_occupation">
+                    <option value="">All</option>
+                    <option value="COLLEGE_STUDENT">College Student</option>
+                    <option value="WORKING_PROFESSIONAL">Working Professional</option>
+                    <option value="ENTREPRENEUR">Entrepreneur</option>
+                    <option value="OTHER">Other</option>
+                </select>
+            </div>
+            
+            <!-- Country Filter -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">Country</label>
+                <input type="text" class="form-control" id="filter_country" placeholder="Filter by country...">
+            </div>
+            
+            <!-- State Filter -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">State</label>
+                <input type="text" class="form-control" id="filter_state" placeholder="Filter by state...">
+            </div>
+            
+            <!-- City Filter -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">City</label>
+                <input type="text" class="form-control" id="filter_city" placeholder="Filter by city...">
+            </div>
+            
+            <!-- Academy 1.0 Participation -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">Academy 1.0 Participant</label>
+                <select class="form-select" id="filter_academy1">
+                    <option value="">All</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                </select>
+            </div>
+            
+            <!-- Course Completion Status -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">Course Status</label>
+                <select class="form-select" id="filter_course_status">
+                    <option value="">All</option>
+                    <option value="completed">Completed Courses</option>
+                    <option value="verified">Verified Badges</option>
+                    <option value="failed">Failed Verification</option>
+                    <option value="pending">Pending Verification</option>
+                </select>
+            </div>
+            
+            <!-- Skillboost Profile Status -->
+            <div class="col-md-3 mb-3">
+                <label class="form-label small">Skillboost Profile</label>
+                <select class="form-select" id="filter_skillboost_status">
+                    <option value="">All</option>
+                    <option value="verified">Verified</option>
+                    <option value="failed">Failed</option>
+                    <option value="pending">Pending</option>
+                    <option value="missing">Not Submitted</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-12">
+                <button class="btn btn-secondary" onclick="clearAdvancedFilters()">
+                    <i class="bi bi-x-circle"></i> Clear All Filters
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User List -->
+<div id="userList">
+    <div class="search-results">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5><i class="bi bi-people-fill"></i> All Users <span class="badge bg-primary" id="resultCount">0</span></h5>
+            <div>
+                <select class="form-select" id="pageSizeSelect" onchange="changePageSize()">
+                    <option value="50" selected>50 per page</option>
+                    <option value="100">100 per page</option>
+                    <option value="250">250 per page</option>
+                    <option value="500">500 per page</option>
+                </select>
+            </div>
+        </div>
+        <div id="resultsList"></div>
+        
+        <!-- Pagination -->
+        <div class="d-flex justify-content-between align-items-center mt-4">
+            <div>
+                <span id="pageInfo">Page 1 of 1</span>
+            </div>
+            <div>
+                <button class="btn btn-outline-primary" id="prevPageBtn" onclick="prevPage()" disabled>
+                    <i class="bi bi-chevron-left"></i> Previous
+                </button>
+                <button class="btn btn-outline-primary ms-2" id="nextPageBtn" onclick="nextPage()" disabled>
+                    Next <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Indicator -->
+<div id="loadingIndicator" style="display:none;" class="text-center my-5">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-3">Loading profile...</p>
+</div>
+
+<!-- Profile Display -->
+<div id="profileDisplay" style="display:none;">
+    <button class="btn btn-secondary back-btn" onclick="backToResults()">
+        <i class="bi bi-arrow-left"></i> Back to Results
+    </button>
+    
+    <!-- User Profile Card -->
+    <div class="profile-card">
+        <div class="profile-header">
+            <i class="bi bi-person-circle"></i> User Profile
+        </div>
+        <div class="profile-section" id="userProfileSection">
+            <!-- User details will be populated here -->
+        </div>
+    </div>
+    
+    <!-- Skillboost Profiles Card -->
+    <div class="profile-card">
+        <div class="section-header">
+            <span><i class="bi bi-link-45deg"></i> Skillboost Profiles</span>
+            <span class="badge-count" id="profileCount">0</span>
+        </div>
+        <div id="skillboostSection">
+            <!-- Skillboost profiles will be populated here -->
+        </div>
+    </div>
+    
+    <!-- Course Badges Card -->
+    <div class="profile-card">
+        <div class="section-header">
+            <span><i class="bi bi-award"></i> Course Badges</span>
+            <span class="badge-count" id="badgeCount">0 total</span>
+        </div>
+        <div id="coursesSection">
+            <!-- Course badges will be populated here -->
+        </div>
+    </div>
+    
+    <!-- Masterclass Attendance Card -->
+    <div class="profile-card">
+        <div class="section-header">
+            <span><i class="bi bi-camera-video"></i> Masterclass Attendance</span>
+            <span class="badge-count" id="masterclassCount">0 attended</span>
+        </div>
+        <div id="masterclassSection">
+            <!-- Masterclass attendance will be populated here -->
+        </div>
+    </div>
+</div>
+
+<script>
+let allUsers = [];
+let displayedUsers = [];
+let currentEmail = '';
+let currentPage = 1;
+let pageSize = 50;
+let totalPages = 1;
+let isSearchMode = false;
+
+// Load all users on page load
+window.addEventListener('DOMContentLoaded', function() {
+    loadAllUsers();
+    
+    // Add event listeners to advanced filters for auto-apply
+    const filterIds = [
+        'filter_gender', 'filter_occupation', 'filter_country', 
+        'filter_state', 'filter_city', 'filter_academy1',
+        'filter_course_status', 'filter_skillboost_status'
+    ];
+    
+    filterIds.forEach(filterId => {
+        const element = document.getElementById(filterId);
+        if (element) {
+            if (element.tagName === 'SELECT') {
+                element.addEventListener('change', searchUsers);
+            } else {
+                // For text inputs, use debounce to avoid too many requests
+                let timeout;
+                element.addEventListener('input', () => {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(searchUsers, 500); // Wait 500ms after user stops typing
+                });
+            }
+        }
+    });
+    
+    // Also trigger search on Enter key in search input
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            searchUsers();
+        }
+    });
+});
+
+// Load all users
+async function loadAllUsers() {
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('userList').style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/all-users');
+        const data = await response.json();
+        
+        if (data.success) {
+            allUsers = data.users;
+            displayedUsers = allUsers;
+            isSearchMode = false;
+            currentPage = 1;
+            displayUsers();
+        } else {
+            alert('Failed to load users: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error loading users: ' + error.message);
+    } finally {
+        document.getElementById('loadingIndicator').style.display = 'none';
+        document.getElementById('userList').style.display = 'block';
+    }
+}
+
+// Search users
+// Advanced Filters
+let advancedFiltersVisible = false;
+
+function toggleAdvancedFilters() {
+    advancedFiltersVisible = !advancedFiltersVisible;
+    const container = document.getElementById('advancedFiltersContainer');
+    container.style.display = advancedFiltersVisible ? 'block' : 'none';
+}
+
+function clearAdvancedFilters() {
+    // Clear all filter inputs
+    document.getElementById('filter_gender').value = '';
+    document.getElementById('filter_occupation').value = '';
+    document.getElementById('filter_country').value = '';
+    document.getElementById('filter_state').value = '';
+    document.getElementById('filter_city').value = '';
+    document.getElementById('filter_academy1').value = '';
+    document.getElementById('filter_course_status').value = '';
+    document.getElementById('filter_skillboost_status').value = '';
+    
+    // Reset to all users
+    searchUsers();
+}
+
+function applyClientSideFilters(users) {
+    let filtered = [...users];
+    
+    // Gender filter
+    const gender = document.getElementById('filter_gender').value;
+    if (gender) {
+        filtered = filtered.filter(u => u.gender === gender);
+    }
+    
+    // Occupation filter
+    const occupation = document.getElementById('filter_occupation').value;
+    if (occupation) {
+        filtered = filtered.filter(u => u.occupation === occupation);
+    }
+    
+    // Country filter
+    const country = document.getElementById('filter_country').value.toLowerCase();
+    if (country) {
+        filtered = filtered.filter(u => u.country && u.country.toLowerCase().includes(country));
+    }
+    
+    // State filter
+    const state = document.getElementById('filter_state').value.toLowerCase();
+    if (state) {
+        filtered = filtered.filter(u => u.state && u.state.toLowerCase().includes(state));
+    }
+    
+    // City filter
+    const city = document.getElementById('filter_city').value.toLowerCase();
+    if (city) {
+        filtered = filtered.filter(u => u.city && u.city.toLowerCase().includes(city));
+    }
+    
+    // Academy 1.0 filter
+    const academy1 = document.getElementById('filter_academy1').value;
+    if (academy1) {
+        filtered = filtered.filter(u => String(u.participated_in_academy_1) === academy1);
+    }
+    
+    return filtered;
+}
+
+async function searchUsers() {
+    const searchTerm = document.getElementById('searchInput').value.trim();
+    
+    // Build query string with advanced filters
+    const params = new URLSearchParams();
+    
+    if (searchTerm) {
+        params.append('q', searchTerm);
+    }
+    
+    // Add advanced filters to query
+    const gender = document.getElementById('filter_gender').value;
+    if (gender) params.append('gender', gender);
+    
+    const occupation = document.getElementById('filter_occupation').value;
+    if (occupation) params.append('occupation', occupation);
+    
+    const country = document.getElementById('filter_country').value;
+    if (country) params.append('country', country);
+    
+    const state = document.getElementById('filter_state').value;
+    if (state) params.append('state', state);
+    
+    const city = document.getElementById('filter_city').value;
+    if (city) params.append('city', city);
+    
+    const academy1 = document.getElementById('filter_academy1').value;
+    if (academy1) params.append('academy1', academy1);
+    
+    const courseStatus = document.getElementById('filter_course_status').value;
+    if (courseStatus) params.append('course_status', courseStatus);
+    
+    const skillboostStatus = document.getElementById('filter_skillboost_status').value;
+    if (skillboostStatus) params.append('skillboost_status', skillboostStatus);
+    
+    // If no filters at all, show all users
+    if (params.toString() === '') {
+        displayedUsers = allUsers;
+        isSearchMode = false;
+        currentPage = 1;
+        displayUsers();
+        return;
+    }
+    
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('userList').style.display = 'none';
+    
+    try {
+        const response = await fetch(`/api/search-users?${params.toString()}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            displayedUsers = data.users;
+            isSearchMode = true;
+            currentPage = 1;
+            displayUsers();
+        } else {
+            alert('Search failed: ' + data.error);
+        }
+    } catch (error) {
+        alert('Search error: ' + error.message);
+    } finally {
+        document.getElementById('loadingIndicator').style.display = 'none';
+        document.getElementById('userList').style.display = 'block';
+    }
+}
+
+// Display users with pagination
+function displayUsers() {
+    const resultsList = document.getElementById('resultsList');
+    const resultCount = document.getElementById('resultCount');
+    
+    totalPages = Math.ceil(displayedUsers.length / pageSize);
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    const pageUsers = displayedUsers.slice(start, end);
+    
+    resultCount.textContent = displayedUsers.length.toLocaleString();
+    
+    if (displayedUsers.length === 0) {
+        resultsList.innerHTML = '<div class="no-data">No users found.</div>';
+    } else {
+        let html = '';
+        pageUsers.forEach(user => {
+            html += `
+                <div class="result-item" onclick="loadUserProfile('${user.email}')">
+                    <div class="row">
+                        <div class="col-md-3"><strong>${user.name || 'N/A'}</strong></div>
+                        <div class="col-md-3">${user.email}</div>
+                        <div class="col-md-3">${user.phone_number || 'N/A'}</div>
+                        <div class="col-md-3">${user.city ? user.city + ', ' + user.state : 'N/A'}</div>
+                    </div>
+                </div>
+            `;
+        });
+        resultsList.innerHTML = html;
+    }
+    
+    // Update pagination
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages} (Showing ${start + 1}-${Math.min(end, displayedUsers.length)} of ${displayedUsers.length.toLocaleString()})`;
+    document.getElementById('prevPageBtn').disabled = currentPage === 1;
+    document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+}
+
+// Pagination functions
+function nextPage() {
+    if (currentPage < totalPages) {
+        currentPage++;
+        displayUsers();
+        window.scrollTo(0, 0);
+    }
+}
+
+function prevPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        displayUsers();
+        window.scrollTo(0, 0);
+    }
+}
+
+function changePageSize() {
+    pageSize = parseInt(document.getElementById('pageSizeSelect').value);
+    currentPage = 1;
+    displayUsers();
+}
+
+// Load user profile
+async function loadUserProfile(email) {
+    currentEmail = email;
+    document.getElementById('userList').style.display = 'none';
+    document.getElementById('loadingIndicator').style.display = 'block';
+    
+    try {
+        const response = await fetch(`/api/user-profile/${encodeURIComponent(email)}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            displayUserProfile(data);
+            document.getElementById('profileDisplay').style.display = 'block';
+        } else {
+            alert('Failed to load profile: ' + data.error);
+            document.getElementById('userList').style.display = 'block';
+        }
+    } catch (error) {
+        alert('Error loading profile: ' + error.message);
+        document.getElementById('userList').style.display = 'block';
+    } finally {
+        document.getElementById('loadingIndicator').style.display = 'none';
+    }
+}
+
+// Display user profile
+function displayUserProfile(data) {
+    const user = data.user;
+    
+    // User Profile Section
+    let userHtml = `
+        <div class="info-row">
+            <div class="info-label">Name:</div>
+            <div class="info-value">${user.name || '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Email:</div>
+            <div class="info-value">${user.email}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Phone:</div>
+            <div class="info-value">${user.phone_number || '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Gender:</div>
+            <div class="info-value">${user.gender || '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Location:</div>
+            <div class="info-value">${[user.city, user.state, user.country].filter(Boolean).join(', ') || '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Designation:</div>
+            <div class="info-value">${user.designation || '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Occupation:</div>
+            <div class="info-value">${user.occupation || '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Education:</div>
+            <div class="info-value">${user.degree_passout_year || '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">LinkedIn:</div>
+            <div class="info-value">${user.linkedin ? '<a href="' + user.linkedin + '" target="_blank">View Profile</a>' : '-'}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Academy 1.0:</div>
+            <div class="info-value">${user.participated_in_academy_1 ? '<span class="status-verified">Yes</span>' : 'No'}</div>
+        </div>
+    `;
+    document.getElementById('userProfileSection').innerHTML = userHtml;
+    
+    // Skillboost Profiles Section
+    const profiles = data.skillboost_profiles;
+    document.getElementById('profileCount').textContent = profiles.length;
+    
+    if (profiles.length === 0) {
+        document.getElementById('skillboostSection').innerHTML = '<div class="no-data">No Skillboost profiles submitted</div>';
+    } else {
+        let profileHtml = '<div class="profile-section">';
+        profiles.forEach(profile => {
+            const statusClass = profile.valid === true ? 'badge-verified' : (profile.valid === false ? 'badge-failed' : 'badge-pending');
+            const statusBadge = profile.valid === true ? '<span class="status-verified">✓ Verified</span>' : 
+                              (profile.valid === false ? '<span class="status-failed">✗ Failed</span>' : 
+                               '<span class="status-pending">⚠ Pending</span>');
+            
+            profileHtml += `
+                <div class="badge-item ${statusClass}">
+                    <div class="mb-2"><strong>Profile Link:</strong></div>
+                    <div class="mb-2"><a href="${profile.google_cloud_skills_boost_profile_link}" target="_blank" class="link-text">${profile.google_cloud_skills_boost_profile_link}</a></div>
+                    <div class="mb-2"><strong>Status:</strong> ${statusBadge}</div>
+                    ${profile.remarks ? '<div><strong>Remarks:</strong> ' + profile.remarks + '</div>' : ''}
+                </div>
+            `;
+        });
+        profileHtml += '</div>';
+        document.getElementById('skillboostSection').innerHTML = profileHtml;
+    }
+    
+    // Course Badges Section
+    const courses = data.courses;
+    const verifiedCount = courses.filter(c => c.valid === true).length;
+    document.getElementById('badgeCount').textContent = `${verifiedCount}/${courses.length} verified`;
+    
+    if (courses.length === 0) {
+        document.getElementById('coursesSection').innerHTML = '<div class="no-data">No courses completed yet</div>';
+    } else {
+        let courseHtml = '<div class="profile-section">';
+        courses.forEach(course => {
+            const statusClass = course.valid === true ? 'badge-verified' : (course.valid === false ? 'badge-failed' : 'badge-pending');
+            const statusBadge = course.valid === true ? '<span class="status-verified">✓ Verified</span>' : 
+                              (course.valid === false ? '<span class="status-failed">✗ Failed</span>' : 
+                               '<span class="status-pending">⚠ Pending</span>');
+            
+            courseHtml += `
+                <div class="badge-item ${statusClass}">
+                    <div class="mb-2"><strong>${course.problem_statement}</strong></div>
+                    ${course.share_skill_badge_public_link ? '<div class="mb-2"><a href="' + course.share_skill_badge_public_link + '" target="_blank" class="link-text">View Badge</a></div>' : '<div class="mb-2 text-muted">No badge link</div>'}
+                    <div class="mb-2"><strong>Status:</strong> ${statusBadge}</div>
+                    ${course.remarks ? '<div><strong>Remarks:</strong> ' + course.remarks + '</div>' : ''}
+                </div>
+            `;
+        });
+        courseHtml += '</div>';
+        document.getElementById('coursesSection').innerHTML = courseHtml;
+    }
+    
+    // Masterclass Attendance Section
+    const masterclasses = data.masterclasses;
+    document.getElementById('masterclassCount').textContent = `${masterclasses.length} attended`;
+    
+    if (masterclasses.length === 0) {
+        document.getElementById('masterclassSection').innerHTML = '<div class="no-data">No masterclasses attended yet</div>';
+    } else {
+        let mcHtml = '<div class="profile-section">';
+        masterclasses.forEach(mc => {
+            mcHtml += `
+                <div class="masterclass-item">
+                    <div><strong>${mc.master_class_name}</strong></div>
+                    <div><span class="badge ${mc.time_watched === 'live' ? 'bg-success' : 'bg-info'}">${mc.time_watched || 'recorded'}</span></div>
+                </div>
+            `;
+        });
+        mcHtml += '</div>';
+        document.getElementById('masterclassSection').innerHTML = mcHtml;
+    }
+}
+
+// Back to results
+function backToResults() {
+    document.getElementById('profileDisplay').style.display = 'none';
+    document.getElementById('userList').style.display = 'block';
+}
+
+// Enter key to search
+document.getElementById('searchInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        searchUsers();
+    }
+});
+</script>
+{% endblock %}
+

@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Certificates - GenAI Academy 2.0{% endblock %}
+
+{% block extra_css %}
+<style>
+    .track-section {
+        margin-bottom: 2rem;
+    }
+    .track-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 10px 10px 0 0;
+        margin-bottom: 0;
+    }
+    .track-card {
+        border: 1px solid #dee2e6;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .certificate-badge {
+        display: inline-block;
+        background: #28a745;
+        color: white;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+    .user-table {
+        margin-top: 0;
+    }
+    .loading-spinner {
+        text-align: center;
+        padding: 2rem;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: #6c757d;
+    }
+    .export-btn {
+        margin-top: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-3">
+                <i class="bi bi-award-fill text-warning"></i> Certificate Eligibility
+            </h1>
+            <p class="text-muted">
+                Users who have completed all courses in a track and attended the master class are eligible for certificates.
+            </p>
+        </div>
+    </div>
+
+    <!-- Track Sections -->
+    <div class="row">
+        {% set tracks = ['AI/ML', 'Data', 'Dev Ops', 'Security', 'Networking', 'Serverless'] %}
+        {% for track in tracks %}
+        <div class="col-12 track-section">
+            <div class="track-card">
+                <div class="track-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h4 class="mb-1">
+                                <i class="bi bi-trophy-fill"></i> {{ track }} Track Certificate
+                            </h4>
+                            <p class="mb-0 opacity-75">
+                                Eligibility: All courses completed + Master class attended
+                            </p>
+                        </div>
+                        <div>
+                            <span class="certificate-badge" id="badge-{{ track|replace(' ', '-')|replace('/', '-') }}">
+                                <span id="count-{{ track|replace(' ', '-')|replace('/', '-') }}">0</span> Eligible
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Eligible Users</h5>
+                        <button class="btn btn-primary btn-sm export-btn" 
+                                onclick="exportTrack('{{ track }}')"
+                                id="export-btn-{{ track|replace(' ', '-')|replace('/', '-') }}"
+                                style="display: none;">
+                            <i class="bi bi-download"></i> Export CSV
+                        </button>
+                    </div>
+                    
+                    <div id="loading-{{ track|replace(' ', '-')|replace('/', '-') }}" class="loading-spinner">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                    
+                    <div id="content-{{ track|replace(' ', '-')|replace('/', '-') }}" style="display: none;">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-striped user-table">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Phone</th>
+                                        <th>Location</th>
+                                        <th>Occupation</th>
+                                        <th>Courses</th>
+                                        <th>Master Class</th>
+                                        <th>LinkedIn</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-{{ track|replace(' ', '-')|replace('/', '-') }}">
+                                    <!-- Data will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div id="empty-{{ track|replace(' ', '-')|replace('/', '-') }}" class="empty-state" style="display: none;">
+                        <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+                        <p class="mt-3">No eligible users found for this track</p>
+                        <small class="text-muted">Users must complete all courses and attend the master class</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const tracks = ['AI/ML', 'Data', 'Dev Ops', 'Security', 'Networking', 'Serverless'];
+    
+    // Load data for all tracks on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        tracks.forEach(track => {
+            loadTrackData(track);
+        });
+    });
+    
+    function loadTrackData(track) {
+        const trackId = track.replace(' ', '-').replace('/', '-');
+        const loadingEl = document.getElementById(`loading-${trackId}`);
+        const contentEl = document.getElementById(`content-${trackId}`);
+        const emptyEl = document.getElementById(`empty-${trackId}`);
+        const tableBody = document.getElementById(`table-${trackId}`);
+        const countEl = document.getElementById(`count-${trackId}`);
+        const exportBtn = document.getElementById(`export-btn-${trackId}`);
+        
+        // Encode track name for URL query parameter
+        const encodedTrack = encodeURIComponent(track);
+        
+        fetch(`/api/certificates?track=${encodedTrack}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    return response.text().then(text => {
+                        throw new Error(`Expected JSON but got: ${text.substring(0, 100)}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                loadingEl.style.display = 'none';
+                
+                if (data.success && data.users && data.users.length > 0) {
+                    contentEl.style.display = 'block';
+                    emptyEl.style.display = 'none';
+                    exportBtn.style.display = 'inline-block';
+                    
+                    // Update count
+                    countEl.textContent = data.count;
+                    
+                    // Populate table
+                    let html = '';
+                    data.users.forEach(user => {
+                        const location = [user.country, user.state, user.city]
+                            .filter(x => x)
+                            .join(', ') || 'N/A';
+                        
+                        html += `
+                            <tr>
+                                <td><strong>${user.name || 'N/A'}</strong></td>
+                                <td>${user.email || 'N/A'}</td>
+                                <td>${user.phone_number || 'N/A'}</td>
+                                <td>${location}</td>
+                                <td>${user.occupation || 'N/A'}</td>
+                                <td>
+                                    <span class="badge bg-success">
+                                        ${user.courses_completed}/${user.total_courses}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">${user.master_class_type}</span>
+                                </td>
+                                <td>
+                                    ${user.linkedin ? 
+                                        `<a href="${user.linkedin}" target="_blank" class="text-decoration-none">
+                                            <i class="bi bi-linkedin"></i> View
+                                        </a>` : 
+                                        'N/A'
+                                    }
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableBody.innerHTML = html;
+                } else {
+                    contentEl.style.display = 'none';
+                    emptyEl.style.display = 'block';
+                    exportBtn.style.display = 'none';
+                    countEl.textContent = '0';
+                }
+            })
+            .catch(error => {
+                console.error(`Error loading ${track} track:`, error);
+                loadingEl.style.display = 'none';
+                emptyEl.style.display = 'block';
+                emptyEl.innerHTML = `
+                    <i class="bi bi-exclamation-triangle" style="font-size: 3rem; color: #dc3545;"></i>
+                    <p class="mt-3 text-danger">Error loading data</p>
+                    <small class="text-muted">${error.message}</small>
+                `;
+            });
+    }
+    
+    function exportTrack(track) {
+        const encodedTrack = encodeURIComponent(track);
+        window.location.href = `/api/certificates/export?track=${encodedTrack}`;
+    }
+</script>
+{% endblock %}
+

@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+
+{% block title %}{{ profile.user.name }} - GenAI Academy 2.0{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <!-- Back Button -->
+        <a href="javascript:history.back()" class="btn btn-outline-secondary mb-3">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+        
+        <!-- User Info Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-person-circle"></i> User Profile
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Name:</strong> {{ profile.user.name or '-' }}</p>
+                        <p><strong>Email:</strong> {{ profile.user.email }}</p>
+                        <p><strong>Phone:</strong> {{ profile.user.phone_number or '-' }}</p>
+                        <p><strong>Gender:</strong> {{ profile.user.gender or '-' }}</p>
+                        <p><strong>LinkedIn:</strong> 
+                            {% if profile.user.linkedin %}
+                                <a href="{{ profile.user.linkedin }}" target="_blank">View Profile</a>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Location:</strong> {{ profile.user.city or '-' }}, {{ profile.user.state or '-' }}, {{ profile.user.country or '-' }}</p>
+                        <p><strong>Designation:</strong> {{ profile.user.designation or '-' }}</p>
+                        <p><strong>Occupation:</strong> {{ profile.user.occupation or '-' }}</p>
+                        <p><strong>Education:</strong> {{ profile.user.class_stream or '-' }}
+                            {% if profile.user.degree_passout_year %}
+                                ({{ profile.user.degree_passout_year }})
+                            {% endif %}
+                        </p>
+                        <p><strong>Academy 1.0:</strong> 
+                            {% if profile.user.participated_in_academy_1 %}
+                                <span class="badge bg-success">Yes</span>
+                            {% else %}
+                                <span class="badge bg-secondary">No</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Skillboost Profiles -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-link-45deg"></i> Skillboost Profiles
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if profile.skillboost_profiles %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Profile Link</th>
+                                    <th>Status</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for sp in profile.skillboost_profiles %}
+                                <tr>
+                                    <td>
+                                        <a href="{{ sp.google_cloud_skills_boost_profile_link }}" target="_blank" class="text-truncate d-inline-block" style="max-width: 400px;">
+                                            {{ sp.google_cloud_skills_boost_profile_link }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        {% if sp.valid == True %}
+                                            <span class="badge badge-verified">Verified</span>
+                                        {% elif sp.valid == False %}
+                                            <span class="badge badge-failed">Failed</span>
+                                        {% else %}
+                                            <span class="badge badge-pending">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ sp.remarks or '-' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No Skillboost profiles submitted</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Courses -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-award"></i> Course Badges
+                </h5>
+                <span class="badge bg-primary">{{ profile.courses|length }} total</span>
+            </div>
+            <div class="card-body">
+                {% if profile.courses %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Course / Problem Statement</th>
+                                    <th>Badge Link</th>
+                                    <th>Status</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for course in profile.courses %}
+                                <tr>
+                                    <td>{{ course.problem_statement }}</td>
+                                    <td>
+                                        {% if course.share_skill_badge_public_link %}
+                                            <a href="{{ course.share_skill_badge_public_link }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-box-arrow-up-right"></i> View
+                                            </a>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if course.valid == True %}
+                                            <span class="badge badge-verified">Verified</span>
+                                        {% elif course.valid == False %}
+                                            <span class="badge badge-failed">Failed</span>
+                                        {% else %}
+                                            <span class="badge badge-pending">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <small>{{ course.remarks or '-' }}</small>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No courses completed yet</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Masterclasses -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-camera-video"></i> Masterclass Attendance
+                </h5>
+                <span class="badge bg-primary">{{ profile.masterclasses|length }} attended</span>
+            </div>
+            <div class="card-body">
+                {% if profile.masterclasses %}
+                    <div class="row">
+                        {% for mc in profile.masterclasses %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100 {% if mc.live is true or mc.recorded is true %}border-success{% elif mc.live is false or mc.recorded is false %}border-danger{% endif %}">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h6 class="card-title mb-0">{{ mc.master_class_name }}</h6>
+                                        <!-- Overall Validation Status -->
+                                        {% if mc.live is true or mc.recorded is true %}
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-check-circle-fill"></i> Valid
+                                            </span>
+                                        {% elif mc.live is false or mc.recorded is false %}
+                                            <span class="badge bg-danger">
+                                                <i class="bi bi-x-circle-fill"></i> Invalid
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">
+                                                <i class="bi bi-hourglass-split"></i> Pending
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                    
+                                    <hr class="my-2">
+                                    
+                                    <!-- Attendance Type with Validation -->
+                                    <div class="mb-3">
+                                        <strong><i class="bi bi-person-check"></i> Attendance Type:</strong>
+                                        <div class="mt-1">
+                                            {% if mc.live is true %}
+                                                <span class="badge bg-success me-1">
+                                                    <i class="bi bi-broadcast-pin"></i> Live - Verified ✓
+                                                </span>
+                                            {% elif mc.live is false %}
+                                                <span class="badge bg-danger me-1">
+                                                    <i class="bi bi-broadcast-pin"></i> Live - Invalid ✗
+                                                </span>
+                                            {% elif mc.live is none %}
+                                                <!-- Don't show live if it's null -->
+                                            {% endif %}
+                                            
+                                            {% if mc.recorded is true %}
+                                                <span class="badge bg-info">
+                                                    <i class="bi bi-play-circle"></i> Recorded - Verified ✓
+                                                </span>
+                                            {% elif mc.recorded is false %}
+                                                <span class="badge bg-danger">
+                                                    <i class="bi bi-play-circle"></i> Recorded - Invalid ✗
+                                                </span>
+                                            {% elif mc.recorded is none %}
+                                                <!-- Don't show recorded if it's null -->
+                                            {% endif %}
+                                            
+                                            {% if mc.live is none and mc.recorded is none %}
+                                                <span class="badge bg-secondary">
+                                                    <i class="bi bi-hourglass-split"></i> Not Verified Yet
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Watch Time with Progress -->
+                                    {% if mc.watch_time or mc.total_duration %}
+                                    <div class="mb-2">
+                                        <strong><i class="bi bi-clock-history"></i> Watch Time:</strong>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <span class="me-2">
+                                                {% if mc.watch_time %}
+                                                    <span class="badge bg-primary">{{ mc.watch_time }} mins</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">Not recorded</span>
+                                                {% endif %}
+                                                {% if mc.total_duration %}
+                                                    <span class="text-muted">/ {{ mc.total_duration }} mins</span>
+                                                {% endif %}
+                                            </span>
+                                        </div>
+                                        {% if mc.watch_time and mc.total_duration %}
+                                            {% set completion = (mc.watch_time / mc.total_duration * 100) | int %}
+                                            <div class="progress mt-1" style="height: 6px;">
+                                                <div class="progress-bar {% if completion >= 80 %}bg-success{% elif completion >= 50 %}bg-info{% else %}bg-warning{% endif %}" 
+                                                     role="progressbar" 
+                                                     style="width: {{ [completion, 100] | min }}%;" 
+                                                     aria-valuenow="{{ completion }}" 
+                                                     aria-valuemin="0" 
+                                                     aria-valuemax="100">
+                                                </div>
+                                            </div>
+                                            <small class="text-muted">{{ completion }}% watched</small>
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    <!-- Platform -->
+                                    {% if mc.platform %}
+                                    <p class="mb-2">
+                                        <strong><i class="bi bi-display"></i> Platform:</strong> 
+                                        <span class="badge bg-light text-dark">{{ mc.platform }}</span>
+                                    </p>
+                                    {% endif %}
+                                    
+                                    <!-- Link -->
+                                    {% if mc.link %}
+                                    <p class="mb-2">
+                                        <a href="{{ mc.link }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-link-45deg"></i> View Recording
+                                        </a>
+                                    </p>
+                                    {% endif %}
+                                    
+                                    <!-- Date -->
+                                    <p class="mb-0 text-muted">
+                                        <small>
+                                            <i class="bi bi-calendar-event"></i> 
+                                            Attended: {{ mc.started_at.strftime('%b %d, %Y') if mc.started_at else 'Date not available' }}
+                                        </small>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No masterclasses attended yet</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+

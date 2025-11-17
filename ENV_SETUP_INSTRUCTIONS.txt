@@ -1,0 +1,92 @@
+================================================================================
+IMPORTANT: Environment Configuration Required
+================================================================================
+
+Before running the application, you MUST create a .env file with your database
+credentials.
+
+STEPS:
+------
+
+1. Create a file named ".env" (note the dot at the beginning) in the project
+   root directory: D:\Academy 2.0\.env
+
+2. Copy and paste the following content into the .env file:
+
+================================================================================
+# Database Configuration (Remote PostgreSQL Server)
+DB_HOST=192.168.1.60
+DB_PORT=5432
+DB_NAME=academy2_0
+DB_USER=postgres
+DB_PASSWORD=YOUR_POSTGRESQL_PASSWORD_HERE
+
+# Flask Configuration
+FLASK_PORT=5000
+FLASK_SECRET_KEY=change-this-to-random-string-for-production
+FLASK_ENV=development
+
+# Verification Configuration
+RATE_LIMIT_DELAY=2.5
+VERIFICATION_RETRY_ATTEMPTS=3
+VERIFICATION_TIMEOUT=10
+
+# Logging
+LOG_LEVEL=INFO
+================================================================================
+
+3. IMPORTANT: Replace "YOUR_POSTGRESQL_PASSWORD_HERE" with your actual
+   PostgreSQL password (the one you set during PostgreSQL installation)
+
+4. Optionally, change FLASK_SECRET_KEY to any random string for better security
+
+5. Save the file
+
+
+CREATING .env FILE IN WINDOWS:
+-------------------------------
+
+Option 1 - Using Notepad:
+  1. Open Notepad
+  2. Paste the configuration above
+  3. Click File -> Save As
+  4. In "File name" field, type: .env
+  5. In "Save as type", select "All Files"
+  6. Navigate to D:\Academy 2.0\
+  7. Click Save
+
+Option 2 - Using PowerShell:
+  cd "D:\Academy 2.0"
+  notepad .env
+  (Paste configuration, edit password, save)
+
+Option 3 - Using Command Prompt:
+  cd "D:\Academy 2.0"
+  echo # Database Configuration > .env
+  echo DB_HOST=localhost >> .env
+  echo DB_PORT=5432 >> .env
+  echo DB_NAME=academy2_0 >> .env
+  echo DB_USER=postgres >> .env
+  echo DB_PASSWORD=your_password >> .env
+  (Then edit the file to set correct password)
+
+
+VERIFICATION:
+-------------
+
+To verify your .env file is correct, run:
+  python scripts/test_connection.py
+
+This will test the database connection using your .env configuration.
+
+
+SECURITY NOTES:
+---------------
+
+- NEVER commit .env file to version control (it's in .gitignore)
+- NEVER share .env file with others
+- Use strong passwords for production environments
+- Keep backups of your configuration in a secure location
+
+================================================================================
+

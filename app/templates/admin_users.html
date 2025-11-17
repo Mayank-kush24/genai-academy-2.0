@@ -1,0 +1,538 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - GenAI Academy 2.0{% endblock %}
+
+{% block extra_css %}
+<style>
+    .user-card {
+        transition: transform 0.2s;
+        border-left: 4px solid var(--primary-color);
+    }
+    
+    .user-card:hover {
+        transform: translateY(-3px);
+    }
+    
+    .user-card.admin {
+        border-left-color: var(--danger-color);
+    }
+    
+    .user-card.manager {
+        border-left-color: var(--warning-color);
+    }
+    
+    .user-card.viewer {
+        border-left-color: var(--secondary-color);
+    }
+    
+    .role-badge {
+        font-size: 0.75rem;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    
+    .role-admin {
+        background-color: #ea4335;
+        color: white;
+    }
+    
+    .role-manager {
+        background-color: #fbbc04;
+        color: #333;
+    }
+    
+    .role-viewer {
+        background-color: #34a853;
+        color: white;
+    }
+    
+    .permission-badge {
+        font-size: 0.7rem;
+        padding: 3px 8px;
+        margin: 2px;
+        background-color: #e9ecef;
+        border-radius: 8px;
+        display: inline-block;
+    }
+    
+    .permission-badge.active {
+        background-color: #d1f4e0;
+        color: #0f5132;
+    }
+    
+    .modal-header {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        color: white;
+    }
+    
+    .modal-header .btn-close {
+        filter: invert(1);
+    }
+    
+    .form-check-inline {
+        margin-right: 15px;
+        margin-bottom: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>
+            <i class="bi bi-people-fill"></i> User Management
+        </h1>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createUserModal">
+            <i class="bi bi-person-plus"></i> Create New User
+        </button>
+    </div>
+    
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <!-- Users List -->
+    <div class="row" id="usersContainer">
+        {% for user in users %}
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="card user-card {{ user.role }}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <h5 class="card-title mb-1">
+                                {{ user.full_name or user.username }}
+                                {% if not user.is_active %}
+                                <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </h5>
+                            <p class="text-muted small mb-0">@{{ user.username }}</p>
+                        </div>
+                        <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
+                    </div>
+                    
+                    <p class="small mb-2">
+                        <i class="bi bi-envelope"></i> {{ user.email }}
+                    </p>
+                    
+                    <hr class="my-2">
+                    
+                    <div class="small mb-2">
+                        <strong>Permissions:</strong><br>
+                        {% set perms = user.get_permissions() %}
+                        {% for key, value in perms.items() %}
+                            <span class="permission-badge {% if value %}active{% endif %}">
+                                {% if value %}<i class="bi bi-check-circle-fill"></i>{% else %}<i class="bi bi-x-circle"></i>{% endif %}
+                                {{ key.replace('_', ' ').title() }}
+                            </span>
+                        {% endfor %}
+                    </div>
+                    
+                    <hr class="my-2">
+                    
+                    <div class="small text-muted mb-2">
+                        <i class="bi bi-calendar-plus"></i> Created: {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else 'N/A' }}<br>
+                        <i class="bi bi-clock"></i> Last Login: {{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}
+                    </div>
+                    
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-sm btn-outline-primary flex-fill" onclick="editUser({{ user.user_id }})">
+                            <i class="bi bi-pencil"></i> Edit
+                        </button>
+                        {% if user.role != 'admin' or (users|selectattr('role', 'equalto', 'admin')|list|length > 1) %}
+                        <button class="btn btn-sm btn-outline-danger flex-fill" onclick="deleteUser({{ user.user_id }}, '{{ user.username }}')">
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal fade" id="createUserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-person-plus"></i> Create New User</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createUserForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="create_username" class="form-label">Username *</label>
+                            <input type="text" class="form-control" id="create_username" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="create_email" class="form-label">Email *</label>
+                            <input type="email" class="form-control" id="create_email" required>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="create_full_name" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="create_full_name">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="create_password" class="form-label">Password *</label>
+                            <input type="password" class="form-control" id="create_password" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="create_role" class="form-label">Role *</label>
+                        <select class="form-select" id="create_role" onchange="updatePermissions()">
+                            <option value="admin">Admin (Full Access)</option>
+                            <option value="manager">Manager (Data Management)</option>
+                            <option value="viewer" selected>Viewer (Read Only)</option>
+                            <option value="custom">Custom (Select Permissions)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3" id="permissionsSection">
+                        <label class="form-label">Permissions</label>
+                        <div class="border rounded p-3 bg-light">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_view_dashboard">
+                                <label class="form-check-label" for="perm_view_dashboard">View Dashboard</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_view_badge_stats">
+                                <label class="form-check-label" for="perm_view_badge_stats">Badge Statistics</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_view_profiles">
+                                <label class="form-check-label" for="perm_view_profiles">View Profiles</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_view_data">
+                                <label class="form-check-label" for="perm_view_data">View Data</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_import_data">
+                                <label class="form-check-label" for="perm_import_data">Import Data</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_export_data">
+                                <label class="form-check-label" for="perm_export_data">Export Data</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_manage_users">
+                                <label class="form-check-label" for="perm_manage_users">Manage Users</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="perm_verification_queue">
+                                <label class="form-check-label" for="perm_verification_queue">Verification Queue</label>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createUser()">
+                    <i class="bi bi-check-lg"></i> Create User
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit User</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editUserForm">
+                    <input type="hidden" id="edit_user_id">
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="edit_username" disabled>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_email" class="form-label">Email *</label>
+                            <input type="email" class="form-control" id="edit_email" required>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_full_name" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="edit_full_name">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_password" class="form-label">New Password (leave blank to keep current)</label>
+                            <input type="password" class="form-control" id="edit_password">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_role" class="form-label">Role *</label>
+                            <select class="form-select" id="edit_role" onchange="updateEditPermissions()">
+                                <option value="admin">Admin (Full Access)</option>
+                                <option value="manager">Manager (Data Management)</option>
+                                <option value="viewer">Viewer (Read Only)</option>
+                                <option value="custom">Custom (Select Permissions)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_is_active" class="form-label">Status</label>
+                            <select class="form-select" id="edit_is_active">
+                                <option value="true">Active</option>
+                                <option value="false">Inactive</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3" id="editPermissionsSection">
+                        <label class="form-label">Permissions</label>
+                        <div class="border rounded p-3 bg-light">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_view_dashboard">
+                                <label class="form-check-label" for="edit_perm_view_dashboard">View Dashboard</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_view_badge_stats">
+                                <label class="form-check-label" for="edit_perm_view_badge_stats">Badge Statistics</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_view_profiles">
+                                <label class="form-check-label" for="edit_perm_view_profiles">View Profiles</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_view_data">
+                                <label class="form-check-label" for="edit_perm_view_data">View Data</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_import_data">
+                                <label class="form-check-label" for="edit_perm_import_data">Import Data</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_export_data">
+                                <label class="form-check-label" for="edit_perm_export_data">Export Data</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_manage_users">
+                                <label class="form-check-label" for="edit_perm_manage_users">Manage Users</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="edit_perm_verification_queue">
+                                <label class="form-check-label" for="edit_perm_verification_queue">Verification Queue</label>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="updateUser()">
+                    <i class="bi bi-check-lg"></i> Update User
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const rolePermissions = {{ roles|tojson }};
+    
+    function updatePermissions() {
+        const role = document.getElementById('create_role').value;
+        const perms = rolePermissions[role] || {};
+        
+        // Update checkboxes based on role
+        for (const [key, value] of Object.entries(perms)) {
+            const checkbox = document.getElementById(`perm_${key}`);
+            if (checkbox) {
+                checkbox.checked = value;
+                checkbox.disabled = (role !== 'custom');
+            }
+        }
+    }
+    
+    function updateEditPermissions() {
+        const role = document.getElementById('edit_role').value;
+        const perms = rolePermissions[role] || {};
+        
+        // Update checkboxes based on role
+        for (const [key, value] of Object.entries(perms)) {
+            const checkbox = document.getElementById(`edit_perm_${key}`);
+            if (checkbox) {
+                checkbox.checked = value;
+                checkbox.disabled = (role !== 'custom');
+            }
+        }
+    }
+    
+    async function createUser() {
+        const username = document.getElementById('create_username').value.trim();
+        const email = document.getElementById('create_email').value.trim();
+        const full_name = document.getElementById('create_full_name').value.trim();
+        const password = document.getElementById('create_password').value;
+        const role = document.getElementById('create_role').value;
+        
+        if (!username || !email || !password) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        const permissions = {
+            view_dashboard: document.getElementById('perm_view_dashboard').checked,
+            view_badge_stats: document.getElementById('perm_view_badge_stats').checked,
+            view_profiles: document.getElementById('perm_view_profiles').checked,
+            view_data: document.getElementById('perm_view_data').checked,
+            import_data: document.getElementById('perm_import_data').checked,
+            export_data: document.getElementById('perm_export_data').checked,
+            manage_users: document.getElementById('perm_manage_users').checked,
+            verification_queue: document.getElementById('perm_verification_queue').checked
+        };
+        
+        try {
+            const response = await fetch('/api/users/create', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, email, full_name, password, role, permissions})
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('User created successfully!');
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (error) {
+            alert('Error creating user: ' + error.message);
+        }
+    }
+    
+    async function editUser(userId) {
+        try {
+            const response = await fetch('/api/users');
+            const data = await response.json();
+            
+            if (data.success) {
+                const user = data.users.find(u => u.user_id === userId);
+                if (user) {
+                    document.getElementById('edit_user_id').value = user.user_id;
+                    document.getElementById('edit_username').value = user.username;
+                    document.getElementById('edit_email').value = user.email;
+                    document.getElementById('edit_full_name').value = user.full_name || '';
+                    document.getElementById('edit_role').value = user.role;
+                    document.getElementById('edit_is_active').value = user.is_active.toString();
+                    
+                    // Set permissions
+                    const perms = user.permissions || {};
+                    for (const [key, value] of Object.entries(perms)) {
+                        const checkbox = document.getElementById(`edit_perm_${key}`);
+                        if (checkbox) {
+                            checkbox.checked = value;
+                        }
+                    }
+                    
+                    updateEditPermissions();
+                    
+                    new bootstrap.Modal(document.getElementById('editUserModal')).show();
+                }
+            }
+        } catch (error) {
+            alert('Error loading user: ' + error.message);
+        }
+    }
+    
+    async function updateUser() {
+        const userId = document.getElementById('edit_user_id').value;
+        const email = document.getElementById('edit_email').value.trim();
+        const full_name = document.getElementById('edit_full_name').value.trim();
+        const password = document.getElementById('edit_password').value;
+        const role = document.getElementById('edit_role').value;
+        const is_active = document.getElementById('edit_is_active').value === 'true';
+        
+        const permissions = {
+            view_dashboard: document.getElementById('edit_perm_view_dashboard').checked,
+            view_badge_stats: document.getElementById('edit_perm_view_badge_stats').checked,
+            view_profiles: document.getElementById('edit_perm_view_profiles').checked,
+            view_data: document.getElementById('edit_perm_view_data').checked,
+            import_data: document.getElementById('edit_perm_import_data').checked,
+            export_data: document.getElementById('edit_perm_export_data').checked,
+            manage_users: document.getElementById('edit_perm_manage_users').checked,
+            verification_queue: document.getElementById('edit_perm_verification_queue').checked
+        };
+        
+        const updateData = {email, full_name, role, is_active, permissions};
+        if (password) {
+            updateData.password = password;
+        }
+        
+        try {
+            const response = await fetch(`/api/users/${userId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(updateData)
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('User updated successfully!');
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (error) {
+            alert('Error updating user: ' + error.message);
+        }
+    }
+    
+    async function deleteUser(userId, username) {
+        if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/users/${userId}`, {
+                method: 'DELETE'
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('User deleted successfully!');
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (error) {
+            alert('Error deleting user: ' + error.message);
+        }
+    }
+    
+    // Initialize permissions on page load
+    updatePermissions();
+</script>
+{% endblock %}
+

@@ -1,0 +1,75 @@
+# Environment Variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Flask
+instance/
+.webassets-cache
+
+# Database
+*.db
+*.sqlite
+*.sql.backup
+
+# Reports and Logs
+reports/*.txt
+reports/*.csv
+reports/*.xlsx
+logs/
+*.log
+
+# Data Files (exclude large data files from git)
+data/*.xlsx
+data/*.csv
+data/*.xls
+backups/
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Credentials
+credentials.json
+service-account.json
+

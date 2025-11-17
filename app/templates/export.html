@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Export Data - GenAI Academy 2.0{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <h2 class="mb-4">
+            <i class="bi bi-download"></i> Export Data
+        </h2>
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-file-earmark-spreadsheet"></i> Available Exports
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">
+                    Download data in CSV format for use with Excel, Google Sheets, or other analysis tools.
+                </p>
+                
+                <div class="list-group">
+                    <!-- Users Export -->
+                    <a href="/api/export/users" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-1">
+                                    <i class="bi bi-people-fill text-primary"></i> User Summary
+                                </h5>
+                                <p class="mb-1">
+                                    Export all users with their course completion counts and masterclass attendance.
+                                </p>
+                                <small class="text-muted">
+                                    Includes: Email, Name, Phone, Location, Designation, Occupation, Course Counts
+                                </small>
+                            </div>
+                            <div>
+                                <button class="btn btn-primary">
+                                    <i class="bi bi-download"></i> Download CSV
+                                </button>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <!-- Courses Export -->
+                    <a href="/api/export/courses" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-1">
+                                    <i class="bi bi-award-fill text-success"></i> Course Submissions
+                                </h5>
+                                <p class="mb-1">
+                                    Export all course badge submissions with verification status.
+                                </p>
+                                <small class="text-muted">
+                                    Includes: Email, Problem Statement, Badge Link, Validation Status, Remarks
+                                </small>
+                            </div>
+                            <div>
+                                <button class="btn btn-primary">
+                                    <i class="bi bi-download"></i> Download CSV
+                                </button>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <!-- Masterclasses Export -->
+                    <a href="/api/export/masterclasses" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-1">
+                                    <i class="bi bi-camera-video-fill text-info"></i> Masterclass Attendance
+                                </h5>
+                                <p class="mb-1">
+                                    Export all masterclass attendance records.
+                                </p>
+                                <small class="text-muted">
+                                    Includes: Email, Masterclass Name, Watch Type (Live/Recorded), Timestamps
+                                </small>
+                            </div>
+                            <div>
+                                <button class="btn btn-primary">
+                                    <i class="bi bi-download"></i> Download CSV
+                                </button>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-info-circle"></i> Export Information
+                </h5>
+            </div>
+            <div class="card-body">
+                <h6>File Format</h6>
+                <p>All exports are in CSV (Comma-Separated Values) format, which can be opened with:</p>
+                <ul>
+                    <li>Microsoft Excel</li>
+                    <li>Google Sheets</li>
+                    <li>LibreOffice Calc</li>
+                    <li>Any text editor</li>
+                </ul>
+                
+                <h6 class="mt-3">Data Freshness</h6>
+                <p>Exports contain real-time data from the database at the moment of download.</p>
+                
+                <h6 class="mt-3">Usage Tips</h6>
+                <ul>
+                    <li>Import CSV files to Looker Studio or Power BI for advanced visualization</li>
+                    <li>Use Excel pivot tables for custom analysis</li>
+                    <li>Combine exports using email as the common key</li>
+                    <li>Regular exports can serve as backups</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

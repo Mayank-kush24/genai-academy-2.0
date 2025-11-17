@@ -1,0 +1,721 @@
+{% extends "base.html" %}
+
+{% block title %}View Data - GenAI Academy 2.0{% endblock %}
+
+{% block extra_css %}
+<style>
+    .table-selector {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .data-table-container {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        overflow-x: auto;
+    }
+    .table-btn {
+        margin: 5px;
+    }
+    .search-box {
+        max-width: 400px;
+    }
+    .stats-card {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    .stats-card h3 {
+        margin: 0;
+        font-size: 2.5rem;
+        font-weight: bold;
+    }
+    .stats-card p {
+        margin: 5px 0 0 0;
+        opacity: 0.9;
+    }
+    .filter-section {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    .badge-verified {
+        background: #28a745;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+    .badge-failed {
+        background: #dc3545;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+    .badge-pending {
+        background: #ffc107;
+        color: #000;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+    .pagination-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 20px;
+    }
+    .data-table {
+        font-size: 0.9rem;
+    }
+    .data-table th {
+        background: var(--primary-color);
+        color: white;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    .export-btn {
+        margin-left: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+        <i class="bi bi-table"></i> View Data
+    </h2>
+    <button class="btn btn-success" id="exportBtn" style="display:none;">
+        <i class="bi bi-download"></i> Export Current View
+    </button>
+</div>
+
+<!-- Table Selection -->
+<div class="table-selector">
+    <h5><i class="bi bi-list-ul"></i> Select Table to View:</h5>
+    <div class="btn-group" role="group">
+        <button class="btn btn-primary table-btn" data-table="user_pii">
+            <i class="bi bi-person"></i> User PII
+        </button>
+        <button class="btn btn-primary table-btn" data-table="courses">
+            <i class="bi bi-award"></i> Course Badges
+        </button>
+        <button class="btn btn-primary table-btn" data-table="skillboost_profile">
+            <i class="bi bi-link-45deg"></i> Skillboost Profiles
+        </button>
+        <button class="btn btn-primary table-btn" data-table="master_classes">
+            <i class="bi bi-camera-video"></i> Masterclasses
+        </button>
+        <button class="btn btn-primary table-btn" data-table="master_log">
+            <i class="bi bi-clock-history"></i> Audit Log
+        </button>
+    </div>
+</div>
+
+<!-- Stats Summary -->
+<div id="statsContainer" style="display:none;">
+    <div class="row">
+        <div class="col-md-3">
+            <div class="stats-card">
+                <h3 id="totalRecords">0</h3>
+                <p>Total Records</p>
+            </div>
+        </div>
+        <div class="col-md-3" id="verifiedStats" style="display:none;">
+            <div class="stats-card" style="background: linear-gradient(135deg, #28a745, #20c997);">
+                <h3 id="verifiedCount">0</h3>
+                <p>Verified</p>
+            </div>
+        </div>
+        <div class="col-md-3" id="failedStats" style="display:none;">
+            <div class="stats-card" style="background: linear-gradient(135deg, #dc3545, #e83e8c);">
+                <h3 id="failedCount">0</h3>
+                <p>Failed</p>
+            </div>
+        </div>
+        <div class="col-md-3" id="pendingStats" style="display:none;">
+            <div class="stats-card" style="background: linear-gradient(135deg, #ffc107, #fd7e14);">
+                <h3 id="pendingCount">0</h3>
+                <p>Pending</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Section -->
+<div id="filterSection" style="display:none;">
+    <div class="filter-section">
+        <!-- Search Box Row -->
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label class="form-label small">Search</label>
+                <input type="text" class="form-control" id="searchBox" placeholder="Search across all fields...">
+            </div>
+            <div class="col-md-2" id="validFilter" style="display:none;">
+                <label class="form-label small">Verification Status</label>
+                <select class="form-select" id="validFilterSelect">
+                    <option value="">All Records</option>
+                    <option value="true">Verified Only</option>
+                    <option value="false">Failed Only</option>
+                    <option value="null">Pending Only</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Records per page</label>
+                <select class="form-select" id="limitSelect">
+                    <option value="50">50 rows</option>
+                    <option value="100" selected>100 rows</option>
+                    <option value="250">250 rows</option>
+                    <option value="500">500 rows</option>
+                    <option value="1000">1000 rows</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">&nbsp;</label>
+                <div class="btn-group w-100">
+                    <button class="btn btn-outline-primary" onclick="toggleAdvancedFilters()">
+                        <i class="bi bi-sliders"></i> Advanced
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="clearAllFilters()">
+                        <i class="bi bi-x-circle"></i> Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Dynamic Filters Row -->
+        <div class="row" id="dynamicFilters">
+            <!-- Filters will be added here dynamically based on table -->
+        </div>
+        
+        <!-- Advanced Filters (Collapsible) -->
+        <div id="advancedFiltersContainer" style="display:none;">
+            <hr class="my-3">
+            <h6 class="mb-3"><i class="bi bi-sliders"></i> Advanced Filters</h6>
+            <div class="row" id="advancedFilters">
+                <!-- Advanced filters will be populated here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Indicator -->
+<div id="loadingIndicator" style="display:none;" class="text-center my-5">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-3">Loading data...</p>
+</div>
+
+<!-- Data Table -->
+<div id="dataContainer" style="display:none;">
+    <div class="data-table-container">
+        <div id="tableContent"></div>
+        
+        <div class="pagination-container">
+            <div>
+                <span id="recordInfo">Showing 0 records</span>
+            </div>
+            <div>
+                <button class="btn btn-sm btn-outline-primary" id="prevPage" disabled>
+                    <i class="bi bi-chevron-left"></i> Previous
+                </button>
+                <span class="mx-3" id="pageInfo">Page 1</span>
+                <button class="btn btn-sm btn-outline-primary" id="nextPage" disabled>
+                    Next <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentTable = '';
+let currentData = [];
+let filteredData = [];
+let currentPage = 1;
+let recordsPerPage = 100;
+let totalPages = 1;
+
+// Table selection
+document.querySelectorAll('.table-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('.table-btn').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        currentTable = this.dataset.table;
+        currentPage = 1;
+        loadTableData();
+    });
+});
+
+// Load table data
+async function loadTableData() {
+    if (!currentTable) return;
+    
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('dataContainer').style.display = 'none';
+    document.getElementById('statsContainer').style.display = 'none';
+    document.getElementById('filterSection').style.display = 'none';
+    
+    try {
+        const response = await fetch(`/api/view/${currentTable}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            currentData = data.records;
+            filteredData = currentData;
+            updateStats(data.stats);
+            displayData();
+            
+            document.getElementById('statsContainer').style.display = 'block';
+            document.getElementById('filterSection').style.display = 'block';
+            document.getElementById('exportBtn').style.display = 'inline-block';
+            
+            // Show validation filter for tables with 'valid' column
+            if (['courses', 'skillboost_profile'].includes(currentTable)) {
+                document.getElementById('validFilter').style.display = 'block';
+                document.getElementById('verifiedStats').style.display = 'block';
+                document.getElementById('failedStats').style.display = 'block';
+                document.getElementById('pendingStats').style.display = 'block';
+            } else {
+                document.getElementById('validFilter').style.display = 'none';
+                document.getElementById('verifiedStats').style.display = 'none';
+                document.getElementById('failedStats').style.display = 'none';
+                document.getElementById('pendingStats').style.display = 'none';
+            }
+        } else {
+            alert('Error loading data: ' + data.error);
+        }
+    } catch (error) {
+        alert('Failed to load data: ' + error.message);
+    } finally {
+        document.getElementById('loadingIndicator').style.display = 'none';
+    }
+}
+
+// Update stats
+function updateStats(stats) {
+    document.getElementById('totalRecords').textContent = stats.total.toLocaleString();
+    
+    if (stats.verified !== undefined) {
+        document.getElementById('verifiedCount').textContent = stats.verified.toLocaleString();
+        document.getElementById('failedCount').textContent = stats.failed.toLocaleString();
+        document.getElementById('pendingCount').textContent = stats.pending.toLocaleString();
+    }
+}
+
+// Display data in table
+function displayData() {
+    const start = (currentPage - 1) * recordsPerPage;
+    const end = start + recordsPerPage;
+    const pageData = filteredData.slice(start, end);
+    
+    if (pageData.length === 0) {
+        document.getElementById('tableContent').innerHTML = '<p class="text-center text-muted my-5">No records found</p>';
+        document.getElementById('dataContainer').style.display = 'block';
+        return;
+    }
+    
+    // Get columns from first record
+    const columns = Object.keys(pageData[0]);
+    
+    // Build table
+    let html = '<table class="table table-striped table-hover data-table">';
+    html += '<thead><tr>';
+    columns.forEach(col => {
+        html += `<th>${formatColumnName(col)}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+    
+    pageData.forEach(record => {
+        html += '<tr>';
+        columns.forEach(col => {
+            html += `<td>${formatCellValue(col, record[col])}</td>`;
+        });
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    
+    document.getElementById('tableContent').innerHTML = html;
+    document.getElementById('dataContainer').style.display = 'block';
+    
+    // Update pagination
+    totalPages = Math.ceil(filteredData.length / recordsPerPage);
+    document.getElementById('recordInfo').textContent = `Showing ${start + 1} to ${Math.min(end, filteredData.length)} of ${filteredData.length.toLocaleString()} records`;
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+    document.getElementById('prevPage').disabled = currentPage === 1;
+    document.getElementById('nextPage').disabled = currentPage === totalPages;
+}
+
+// Format column names
+function formatColumnName(col) {
+    return col.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+// Format cell values
+function formatCellValue(col, value) {
+    if (value === null || value === undefined) {
+        return '<span class="text-muted">-</span>';
+    }
+    
+    // Boolean values
+    if (col === 'valid') {
+        if (value === true) return '<span class="badge-verified">✓ Verified</span>';
+        if (value === false) return '<span class="badge-failed">✗ Failed</span>';
+        return '<span class="badge-pending">⚠ Pending</span>';
+    }
+    
+    // Links
+    if (col.includes('link') || col.includes('url') || col === 'linkedin') {
+        if (value && value.startsWith('http')) {
+            return `<a href="${value}" target="_blank" class="text-truncate d-inline-block" style="max-width: 200px;">${value}</a>`;
+        }
+    }
+    
+    // Dates
+    if (col.includes('_at') || col.includes('date')) {
+        return new Date(value).toLocaleString();
+    }
+    
+    // Long text
+    if (typeof value === 'string' && value.length > 100) {
+        return `<span title="${value}">${value.substring(0, 100)}...</span>`;
+    }
+    
+    return value;
+}
+
+// Search functionality
+const searchBox = document.getElementById('searchBox');
+if (searchBox) {
+    searchBox.addEventListener('input', function(e) {
+        const searchTerm = e.target.value.toLowerCase();
+        
+        if (searchTerm === '') {
+            filteredData = currentData;
+        } else {
+            filteredData = currentData.filter(record => {
+                return Object.values(record).some(value => {
+                    if (value === null || value === undefined) return false;
+                    return value.toString().toLowerCase().includes(searchTerm);
+                });
+            });
+        }
+        
+        currentPage = 1;
+        displayData();
+    });
+}
+
+// Valid filter
+const validFilterSelect = document.getElementById('validFilterSelect');
+if (validFilterSelect) {
+    validFilterSelect.addEventListener('change', function(e) {
+        const filterValue = e.target.value;
+        
+        if (filterValue === '') {
+            filteredData = currentData;
+        } else if (filterValue === 'null') {
+            filteredData = currentData.filter(r => r.valid === null);
+        } else {
+            filteredData = currentData.filter(r => r.valid === (filterValue === 'true'));
+        }
+        
+        // Apply search if exists
+        const searchBox = document.getElementById('searchBox');
+        const searchTerm = searchBox ? searchBox.value.toLowerCase() : '';
+        if (searchTerm) {
+            filteredData = filteredData.filter(record => {
+                return Object.values(record).some(value => {
+                    if (value === null || value === undefined) return false;
+                    return value.toString().toLowerCase().includes(searchTerm);
+                });
+            });
+        }
+        
+        currentPage = 1;
+        displayData();
+    });
+}
+
+// Records per page
+const limitSelect = document.getElementById('limitSelect');
+if (limitSelect) {
+    limitSelect.addEventListener('change', function(e) {
+        recordsPerPage = parseInt(e.target.value);
+        currentPage = 1;
+        displayData();
+    });
+}
+
+// Pagination
+const prevPageBtn = document.getElementById('prevPage');
+if (prevPageBtn) {
+    prevPageBtn.addEventListener('click', () => {
+        if (currentPage > 1) {
+            currentPage--;
+            displayData();
+            window.scrollTo(0, 0);
+        }
+    });
+}
+
+const nextPageBtn = document.getElementById('nextPage');
+if (nextPageBtn) {
+    nextPageBtn.addEventListener('click', () => {
+        if (currentPage < totalPages) {
+            currentPage++;
+            displayData();
+            window.scrollTo(0, 0);
+        }
+    });
+}
+
+// Advanced Filters
+let advancedFiltersVisible = false;
+let activeFilters = {};
+
+// Table field definitions for filters
+const tableFields = {
+    'user_pii': {
+        'name': 'text',
+        'email': 'text',
+        'phone_number': 'text',
+        'gender': 'select',
+        'country': 'text',
+        'state': 'text',
+        'city': 'text',
+        'date_of_birth': 'date',
+        'designation': 'text',
+        'class_stream': 'text',
+        'degree_passout_year': 'text',
+        'occupation': 'select',
+        'linkedin': 'text',
+        'participated_in_academy_1': 'boolean'
+    },
+    'courses': {
+        'email': 'text',
+        'problem_statement': 'text',
+        'track_type': 'select',
+        'badge_type': 'select',
+        'share_skill_badge_public_link': 'text',
+        'valid': 'boolean',
+        'remarks': 'text'
+    },
+    'skillboost_profile': {
+        'email': 'text',
+        'google_cloud_skills_boost_profile_link': 'text',
+        'valid': 'boolean',
+        'remarks': 'text'
+    },
+    'master_classes': {
+        'email': 'text',
+        'master_class_name': 'text',
+        'watched_live_or_recorded': 'select',
+        'attended_on': 'date'
+    },
+    'master_log': {
+        'email': 'text',
+        'table_name': 'text',
+        'operation': 'select',
+        'changed_at': 'datetime'
+    }
+};
+
+// Dropdown values for select fields
+const selectOptions = {
+    'gender': ['MALE', 'FEMALE', 'OTHER'],
+    'occupation': ['COLLEGE_STUDENT', 'WORKING_PROFESSIONAL', 'ENTREPRENEUR', 'OTHER'],
+    'track_type': ['Development', 'Infrastructure', 'Data & AI'],
+    'badge_type': ['Skill Badge', 'Arcade Game', 'Trivia'],
+    'watched_live_or_recorded': ['Live', 'Recorded'],
+    'operation': ['INSERT', 'UPDATE', 'DELETE']
+};
+
+function toggleAdvancedFilters() {
+    advancedFiltersVisible = !advancedFiltersVisible;
+    const container = document.getElementById('advancedFiltersContainer');
+    
+    if (advancedFiltersVisible) {
+        container.style.display = 'block';
+        populateAdvancedFilters();
+    } else {
+        container.style.display = 'none';
+    }
+}
+
+function populateAdvancedFilters() {
+    if (!currentTable || !currentData || currentData.length === 0) return;
+    
+    const fields = tableFields[currentTable];
+    if (!fields) return;
+    
+    const container = document.getElementById('advancedFilters');
+    container.innerHTML = '';
+    
+    // Create filter inputs for each field
+    Object.keys(fields).forEach(fieldName => {
+        const fieldType = fields[fieldName];
+        const col = document.createElement('div');
+        col.className = 'col-md-4 mb-3';
+        
+        let inputHtml = `<label class="form-label small">${formatColumnName(fieldName)}</label>`;
+        
+        if (fieldType === 'text') {
+            inputHtml += `<input type="text" class="form-control form-control-sm advanced-filter" 
+                         data-field="${fieldName}" placeholder="Filter ${formatColumnName(fieldName)}...">`;
+        } else if (fieldType === 'date' || fieldType === 'datetime') {
+            inputHtml += `<div class="input-group input-group-sm">
+                <input type="date" class="form-control advanced-filter" 
+                       data-field="${fieldName}_from" placeholder="From">
+                <input type="date" class="form-control advanced-filter" 
+                       data-field="${fieldName}_to" placeholder="To">
+            </div>`;
+        } else if (fieldType === 'boolean') {
+            inputHtml += `<select class="form-select form-select-sm advanced-filter" data-field="${fieldName}">
+                <option value="">All</option>
+                <option value="true">Yes / True</option>
+                <option value="false">No / False</option>
+                <option value="null">Not Set</option>
+            </select>`;
+        } else if (fieldType === 'select') {
+            const options = selectOptions[fieldName] || [];
+            inputHtml += `<select class="form-select form-select-sm advanced-filter" data-field="${fieldName}">
+                <option value="">All</option>`;
+            options.forEach(opt => {
+                inputHtml += `<option value="${opt}">${opt}</option>`;
+            });
+            inputHtml += `</select>`;
+        }
+        
+        col.innerHTML = inputHtml;
+        container.appendChild(col);
+    });
+    
+    // Add event listeners
+    document.querySelectorAll('.advanced-filter').forEach(input => {
+        input.addEventListener('change', applyAdvancedFilters);
+        if (input.type === 'text') {
+            input.addEventListener('input', applyAdvancedFilters);
+        }
+    });
+}
+
+function applyAdvancedFilters() {
+    // Start with current data
+    filteredData = [...currentData];
+    
+    // Apply basic search filter
+    const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+    if (searchTerm) {
+        filteredData = filteredData.filter(record => {
+            return Object.values(record).some(value => {
+                if (value === null || value === undefined) return false;
+                return value.toString().toLowerCase().includes(searchTerm);
+            });
+        });
+    }
+    
+    // Apply validation filter for tables with valid column
+    if (['courses', 'skillboost_profile'].includes(currentTable)) {
+        const validFilter = document.getElementById('validFilterSelect').value;
+        if (validFilter !== '') {
+            if (validFilter === 'null') {
+                filteredData = filteredData.filter(r => r.valid === null);
+            } else {
+                filteredData = filteredData.filter(r => r.valid === (validFilter === 'true'));
+            }
+        }
+    }
+    
+    // Apply advanced filters
+    document.querySelectorAll('.advanced-filter').forEach(input => {
+        const field = input.getAttribute('data-field');
+        const value = input.value.trim();
+        
+        if (value === '') return;
+        
+        // Handle date ranges
+        if (field.endsWith('_from')) {
+            const actualField = field.replace('_from', '');
+            filteredData = filteredData.filter(record => {
+                const recordDate = new Date(record[actualField]);
+                const filterDate = new Date(value);
+                return recordDate >= filterDate;
+            });
+        } else if (field.endsWith('_to')) {
+            const actualField = field.replace('_to', '');
+            filteredData = filteredData.filter(record => {
+                const recordDate = new Date(record[actualField]);
+                const filterDate = new Date(value);
+                return recordDate <= filterDate;
+            });
+        } 
+        // Handle boolean
+        else if (value === 'true' || value === 'false') {
+            filteredData = filteredData.filter(record => {
+                return record[field] === (value === 'true');
+            });
+        } else if (value === 'null') {
+            filteredData = filteredData.filter(record => {
+                return record[field] === null || record[field] === undefined;
+            });
+        }
+        // Handle text/select
+        else {
+            filteredData = filteredData.filter(record => {
+                if (record[field] === null || record[field] === undefined) return false;
+                return record[field].toString().toLowerCase().includes(value.toLowerCase());
+            });
+        }
+    });
+    
+    currentPage = 1;
+    displayData();
+}
+
+function clearAllFilters() {
+    // Clear basic search
+    document.getElementById('searchBox').value = '';
+    
+    // Clear validation filter
+    const validFilterSelect = document.getElementById('validFilterSelect');
+    if (validFilterSelect) {
+        validFilterSelect.value = '';
+    }
+    
+    // Clear advanced filters
+    document.querySelectorAll('.advanced-filter').forEach(input => {
+        input.value = '';
+    });
+    
+    // Reset filtered data
+    filteredData = currentData;
+    currentPage = 1;
+    displayData();
+}
+
+// Export functionality
+const exportBtn = document.getElementById('exportBtn');
+if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+        if (!currentTable) return;
+        
+        const exportUrl = `/api/export/${currentTable}`;
+        window.location.href = exportUrl;
+    });
+}
+</script>
+{% endblock %}
+

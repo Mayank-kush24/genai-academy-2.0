@@ -1,0 +1,834 @@
+{% extends "base.html" %}
+
+{% block title %}Import CSV - GenAI Academy 2.0{% endblock %}
+
+{% block extra_css %}
+<style>
+    .step-container {
+        display: none;
+    }
+    .step-container.active {
+        display: block;
+    }
+    .step-indicator {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 30px;
+    }
+    .step {
+        flex: 1;
+        text-align: center;
+        padding: 15px;
+        background: #e9ecef;
+        margin: 0 5px;
+        border-radius: 5px;
+        font-weight: 600;
+        color: #6c757d;
+    }
+    .step.active {
+        background: var(--primary-color);
+        color: white;
+    }
+    .step.completed {
+        background: var(--secondary-color);
+        color: white;
+    }
+    .mapping-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 15px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 5px;
+    }
+    .mapping-row .csv-column {
+        flex: 2;
+        font-weight: 600;
+    }
+    .mapping-row .arrow {
+        flex: 0 0 50px;
+        text-align: center;
+        color: #6c757d;
+    }
+    .mapping-row .db-column {
+        flex: 2;
+    }
+    .mapping-row .update-key {
+        flex: 0 0 100px;
+        text-align: center;
+    }
+    .preview-table {
+        overflow-x: auto;
+        margin-top: 20px;
+    }
+    .preview-table table {
+        width: 100%;
+        font-size: 0.85rem;
+    }
+    .btn-nav {
+        min-width: 120px;
+    }
+    .operation-mode-card {
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 2px solid #dee2e6;
+    }
+    .operation-mode-card:hover {
+        border-color: var(--primary-color);
+        transform: translateY(-2px);
+    }
+    .operation-mode-card.selected {
+        border-color: var(--primary-color);
+        background: #e7f3ff;
+    }
+    .stats-summary {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">
+    <i class="bi bi-upload"></i> Import CSV Data
+</h2>
+
+<!-- Step Indicator -->
+<div class="step-indicator">
+    <div class="step active" id="step-indicator-1">1. Upload File</div>
+    <div class="step" id="step-indicator-2">2. Select Table</div>
+    <div class="step" id="step-indicator-3">3. Map Columns</div>
+    <div class="step" id="step-indicator-4">4. Configure Import</div>
+    <div class="step" id="step-indicator-5">5. Review & Import</div>
+</div>
+
+<!-- Step 1: Upload File -->
+<div class="step-container active" id="step-1">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-file-earmark-arrow-up"></i> Step 1: Upload CSV File</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="csvFile" class="form-label">Choose CSV or Excel File</label>
+                <input class="form-control" type="file" id="csvFile" accept=".csv,.xlsx,.xls">
+                <div class="form-text">Supported formats: CSV, XLSX, XLS (Max size: 50MB)</div>
+            </div>
+            
+            <div id="upload-progress" class="d-none">
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+                </div>
+                <p class="text-center mt-2">Uploading...</p>
+            </div>
+            
+            <div id="file-info" class="d-none alert alert-info">
+                <h6>File Information:</h6>
+                <p class="mb-1"><strong>Filename:</strong> <span id="filename"></span></p>
+                <p class="mb-0"><strong>Total Rows:</strong> <span id="row-count"></span></p>
+            </div>
+            
+            <div class="d-flex justify-content-end mt-3">
+                <button class="btn btn-primary btn-nav" id="btn-step-1-next" disabled>
+                    Next <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 2: Select Table -->
+<div class="step-container" id="step-2">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-table"></i> Step 2: Select Target Table</h5>
+        </div>
+        <div class="card-body">
+            <p>Select which table you want to import data into:</p>
+            
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <div class="card operation-mode-card table-card" data-table="user_pii">
+                        <div class="card-body text-center">
+                            <i class="bi bi-person-fill" style="font-size: 2rem; color: var(--primary-color);"></i>
+                            <h5 class="mt-2">User PII</h5>
+                            <p class="text-muted mb-0">Personal information of users</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card operation-mode-card table-card" data-table="courses">
+                        <div class="card-body text-center">
+                            <i class="bi bi-award-fill" style="font-size: 2rem; color: var(--secondary-color);"></i>
+                            <h5 class="mt-2">Courses</h5>
+                            <p class="text-muted mb-0">Course badge submissions</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card operation-mode-card table-card" data-table="skillboost_profile">
+                        <div class="card-body text-center">
+                            <i class="bi bi-link-45deg" style="font-size: 2rem; color: var(--info);"></i>
+                            <h5 class="mt-2">Skillboost Profile</h5>
+                            <p class="text-muted mb-0">Google Cloud Skills Boost profiles</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card operation-mode-card table-card" data-table="master_classes">
+                        <div class="card-body text-center">
+                            <i class="bi bi-camera-video-fill" style="font-size: 2rem; color: var(--warning);"></i>
+                            <h5 class="mt-2">Master Classes</h5>
+                            <p class="text-muted mb-0">Masterclass attendance records</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="d-flex justify-content-between mt-3">
+                <button class="btn btn-secondary btn-nav" id="btn-step-2-back">
+                    <i class="bi bi-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-primary btn-nav" id="btn-step-2-next" disabled>
+                    Next <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 2.5: Master Class Selection (only for master_classes table) -->
+<div class="step-container" id="step-2-5" style="display: none;">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-calendar-event"></i> Step 2.5: Select Master Class</h5>
+        </div>
+        <div class="card-body">
+            <p>Select which master class this data is for:</p>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="master-class-select" class="form-label">Master Class (1 per track)</label>
+                    <select class="form-select form-select-lg" id="master-class-select">
+                        <option value="">-- Select Master Class --</option>
+                        <option value="AI/ML Track - Master Class">AI/ML Track - Master Class</option>
+                        <option value="Data Track - Master Class">Data Track - Master Class</option>
+                        <option value="Dev Ops Track - Master Class">Dev Ops Track - Master Class</option>
+                        <option value="Security Track - Master Class">Security Track - Master Class</option>
+                        <option value="Networking Track - Master Class">Networking Track - Master Class</option>
+                        <option value="Serverless Track - Master Class">Serverless Track - Master Class</option>
+                    </select>
+                    <div class="form-text">
+                        <i class="bi bi-info-circle"></i> This will automatically set the master class name for all rows in the import.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <button class="btn btn-secondary" onclick="goToStep(2)">
+                    <i class="bi bi-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-primary" id="btn-step-2-5-next">
+                    Next <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 3: Map Columns -->
+<div class="step-container" id="step-3">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-arrow-left-right"></i> Step 3: Map Columns</h5>
+            <button class="btn btn-sm btn-outline-primary" id="btn-auto-map">
+                <i class="bi bi-magic"></i> Auto-Map Similar Names
+            </button>
+        </div>
+        <div class="card-body">
+            <p>Map your CSV columns to database columns:</p>
+            
+            <div class="row mb-3">
+                <div class="col-5"><strong>CSV Column</strong></div>
+                <div class="col-1"></div>
+                <div class="col-5"><strong>Database Column</strong></div>
+                <div class="col-1"><strong>Update Key</strong></div>
+            </div>
+            
+            <div id="column-mapping-container">
+                <!-- Mapping rows will be generated here -->
+            </div>
+            
+            <div class="d-flex justify-content-between mt-3">
+                <button class="btn btn-secondary btn-nav" id="btn-step-3-back">
+                    <i class="bi bi-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-primary btn-nav" id="btn-step-3-next">
+                    Next <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 4: Configure Import -->
+<div class="step-container" id="step-4">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-gear-fill"></i> Step 4: Configure Import Operation</h5>
+        </div>
+        <div class="card-body">
+            <p>Select how you want to handle existing records:</p>
+            
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <div class="card operation-mode-card" data-mode="create">
+                        <div class="card-body">
+                            <h5><i class="bi bi-plus-circle"></i> Create Only</h5>
+                            <p class="mb-0">Only create new records. Skip if record already exists.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card operation-mode-card selected" data-mode="create_update">
+                        <div class="card-body">
+                            <h5><i class="bi bi-arrow-repeat"></i> Create & Update</h5>
+                            <p class="mb-0">Create new records and update existing ones.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card operation-mode-card" data-mode="update">
+                        <div class="card-body">
+                            <h5><i class="bi bi-pencil-square"></i> Update Only</h5>
+                            <p class="mb-0">Only update existing records. Skip new records.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="alert alert-info mt-3">
+                <i class="bi bi-info-circle"></i> <strong>Update Keys:</strong> Records will be matched based on the columns you selected with checkboxes in the previous step.
+            </div>
+            
+            <div class="d-flex justify-content-between mt-3">
+                <button class="btn btn-secondary btn-nav" id="btn-step-4-back">
+                    <i class="bi bi-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-primary btn-nav" id="btn-step-4-next">
+                    Next <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 5: Review & Import -->
+<div class="step-container" id="step-5">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-check-circle"></i> Step 5: Review & Import</h5>
+        </div>
+        <div class="card-body">
+            <h6>Import Summary:</h6>
+            
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <p><strong>File:</strong> <span id="review-filename"></span></p>
+                    <p><strong>Target Table:</strong> <span id="review-table"></span></p>
+                    <p><strong>Total Rows:</strong> <span id="review-rows"></span></p>
+                    <p id="review-masterclass-row" style="display: none;"><strong>Master Class:</strong> <span id="review-masterclass"></span></p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>Operation Mode:</strong> <span id="review-mode"></span></p>
+                    <p><strong>Mapped Columns:</strong> <span id="review-mapped-count"></span></p>
+                    <p><strong>Update Keys:</strong> <span id="review-update-keys"></span></p>
+                </div>
+            </div>
+            
+            <div class="preview-table">
+                <h6>Data Preview (First 5 rows):</h6>
+                <table class="table table-sm table-bordered" id="preview-table">
+                    <!-- Preview will be generated here -->
+                </table>
+            </div>
+            
+            <div id="import-progress" class="d-none mt-3">
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+                </div>
+                <p class="text-center mt-2">Importing data, please wait...</p>
+            </div>
+            
+            <div id="import-result" class="d-none">
+                <!-- Results will be shown here -->
+            </div>
+            
+            <div class="d-flex justify-content-between mt-3" id="review-buttons">
+                <button class="btn btn-secondary btn-nav" id="btn-step-5-back">
+                    <i class="bi bi-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-success btn-nav" id="btn-import">
+                    <i class="bi bi-upload"></i> Start Import
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentStep = 1;
+let uploadedFile = null;
+let selectedTable = 'user_pii';
+let columnMapping = {};
+let updateKeys = [];
+let operationMode = 'create_update';
+let csvColumns = [];
+let dbColumns = [];
+let selectedMasterClass = null;
+let previewData = [];
+
+// Step navigation
+function goToStep(step) {
+    // Hide all steps
+    document.querySelectorAll('.step-container').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.step').forEach(el => {
+        el.classList.remove('active');
+        if (parseInt(el.id.split('-')[2]) < step) {
+            el.classList.add('completed');
+        }
+    });
+    
+    // Show current step
+    document.getElementById(`step-${step}`).classList.add('active');
+    document.getElementById(`step-indicator-${step}`).classList.add('active');
+    currentStep = step;
+}
+
+// Step 1: File Upload
+document.getElementById('csvFile').addEventListener('change', async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    document.getElementById('upload-progress').classList.remove('d-none');
+    document.getElementById('btn-step-1-next').disabled = true;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        const response = await fetch('/api/import/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Check if Excel file with multiple sheets
+            if (data.requires_sheet_selection) {
+                // Show sheet selection modal
+                showSheetSelectionModal(data.file_id, data.filename, data.sheets);
+            } else {
+                // Proceed with single sheet or CSV file
+                uploadedFile = data.file_id;
+                csvColumns = data.columns;
+                previewData = data.preview;
+                
+                document.getElementById('filename').textContent = data.filename;
+                document.getElementById('row-count').textContent = data.row_count.toLocaleString();
+                document.getElementById('file-info').classList.remove('d-none');
+                document.getElementById('btn-step-1-next').disabled = false;
+            }
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Upload failed: ' + error.message);
+    } finally {
+        document.getElementById('upload-progress').classList.add('d-none');
+    }
+});
+
+// Function to show sheet selection modal
+function showSheetSelectionModal(fileId, filename, sheets) {
+    const modal = document.getElementById('sheetSelectionModal');
+    const sheetList = document.getElementById('sheetList');
+    
+    document.getElementById('excelFilename').textContent = filename;
+    
+    // Clear previous sheets
+    sheetList.innerHTML = '';
+    
+    // Add sheet buttons
+    sheets.forEach(sheetName => {
+        const button = document.createElement('button');
+        button.className = 'list-group-item list-group-item-action';
+        button.textContent = sheetName;
+        button.onclick = () => selectSheet(fileId, filename, sheetName);
+        sheetList.appendChild(button);
+    });
+    
+    // Show modal
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+}
+
+// Function to handle sheet selection
+async function selectSheet(fileId, filename, sheetName) {
+    try {
+        document.getElementById('sheetSelectionModal').querySelector('.modal-body').innerHTML = 
+            '<div class="text-center"><div class="spinner-border" role="status"></div><p class="mt-2">Loading sheet...</p></div>';
+        
+        const response = await fetch('/api/import/select-sheet', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({file_id: fileId, sheet_name: sheetName})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            uploadedFile = data.file_id;
+            csvColumns = data.columns;
+            previewData = data.preview;
+            
+            document.getElementById('filename').textContent = `${filename} (${sheetName})`;
+            document.getElementById('row-count').textContent = data.row_count.toLocaleString();
+            document.getElementById('file-info').classList.remove('d-none');
+            document.getElementById('btn-step-1-next').disabled = false;
+            
+            // Close modal
+            bootstrap.Modal.getInstance(document.getElementById('sheetSelectionModal')).hide();
+        } else {
+            alert('Error loading sheet: ' + data.error);
+        }
+    } catch (error) {
+        alert('Failed to load sheet: ' + error.message);
+    }
+}
+
+document.getElementById('btn-step-1-next').addEventListener('click', () => goToStep(2));
+
+// Step 2: Table Selection
+document.querySelectorAll('.table-card').forEach(card => {
+    card.addEventListener('click', function() {
+        document.querySelectorAll('.table-card').forEach(c => c.classList.remove('selected'));
+        this.classList.add('selected');
+        selectedTable = this.dataset.table;
+        document.getElementById('btn-step-2-next').disabled = false;
+    });
+});
+
+document.getElementById('btn-step-2-back').addEventListener('click', () => goToStep(1));
+document.getElementById('btn-step-2-next').addEventListener('click', async () => {
+    // If master_classes is selected, go to Step 2.5 for master class selection
+    if (selectedTable === 'master_classes') {
+        document.getElementById('step-2-5').style.display = 'block';
+        goToStep('2-5');
+    } else {
+        // Load database columns for selected table
+        const response = await fetch(`/api/import/columns/${selectedTable}`);
+        const data = await response.json();
+        dbColumns = data.columns;
+        
+        // Generate mapping UI
+        generateMappingUI();
+        goToStep(3);
+    }
+});
+
+// Step 2.5: Master Class Selection (Next button)
+document.getElementById('btn-step-2-5-next').addEventListener('click', async () => {
+    selectedMasterClass = document.getElementById('master-class-select').value;
+    
+    if (!selectedMasterClass) {
+        alert('Please select a master class');
+        return;
+    }
+    
+    // Load database columns for master_classes table
+    const response = await fetch(`/api/import/columns/${selectedTable}`);
+    const data = await response.json();
+    dbColumns = data.columns;
+    
+    // Filter out master_class_name from mapping since it's auto-injected
+    dbColumns = dbColumns.filter(col => col !== 'master_class_name');
+    
+    // Generate mapping UI
+    generateMappingUI();
+    goToStep(3);
+});
+
+// Step 3: Column Mapping
+function generateMappingUI() {
+    const container = document.getElementById('column-mapping-container');
+    container.innerHTML = '';
+    
+    csvColumns.forEach(csvCol => {
+        const row = document.createElement('div');
+        row.className = 'mapping-row';
+        
+        row.innerHTML = `
+            <div class="csv-column">${csvCol}</div>
+            <div class="arrow"><i class="bi bi-arrow-right"></i></div>
+            <div class="db-column">
+                <select class="form-select form-select-sm" data-csv="${csvCol}">
+                    <option value="">-- Skip Column --</option>
+                    ${dbColumns.map(db => `<option value="${db}">${db}</option>`).join('')}
+                </select>
+            </div>
+            <div class="update-key">
+                <input type="checkbox" class="form-check-input update-key-checkbox" data-column="${csvCol}" disabled>
+            </div>
+        `;
+        
+        container.appendChild(row);
+    });
+    
+    // Add change listeners
+    container.querySelectorAll('select').forEach(select => {
+        select.addEventListener('change', function() {
+            const csvCol = this.dataset.csv;
+            const dbCol = this.value;
+            const checkbox = document.querySelector(`.update-key-checkbox[data-column="${csvCol}"]`);
+            
+            if (dbCol) {
+                columnMapping[csvCol] = dbCol;
+                checkbox.disabled = false;
+            } else {
+                delete columnMapping[csvCol];
+                checkbox.disabled = true;
+                checkbox.checked = false;
+            }
+            
+            updateUpdateKeys();
+        });
+    });
+    
+    // Add checkbox listeners
+    container.querySelectorAll('.update-key-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateUpdateKeys);
+    });
+}
+
+function updateUpdateKeys() {
+    updateKeys = [];
+    document.querySelectorAll('.update-key-checkbox:checked').forEach(cb => {
+        const csvCol = cb.dataset.column;
+        const dbCol = columnMapping[csvCol];
+        if (dbCol) {
+            updateKeys.push(dbCol);
+        }
+    });
+}
+
+document.getElementById('btn-auto-map').addEventListener('click', () => {
+    csvColumns.forEach(csvCol => {
+        const csvLower = csvCol.toLowerCase().replace(/[^a-z0-9]/g, '');
+        
+        for (const dbCol of dbColumns) {
+            const dbLower = dbCol.toLowerCase().replace(/[^a-z0-9]/g, '');
+            
+            if (csvLower === dbLower || csvLower.includes(dbLower) || dbLower.includes(csvLower)) {
+                const select = document.querySelector(`select[data-csv="${csvCol}"]`);
+                select.value = dbCol;
+                select.dispatchEvent(new Event('change'));
+                break;
+            }
+        }
+    });
+    
+    alert('Auto-mapping complete! Please review the mappings.');
+});
+
+document.getElementById('btn-step-3-back').addEventListener('click', () => goToStep(2));
+document.getElementById('btn-step-3-next').addEventListener('click', () => {
+    if (Object.keys(columnMapping).length === 0) {
+        alert('Please map at least one column before proceeding.');
+        return;
+    }
+    goToStep(4);
+});
+
+// Step 4: Operation Mode
+document.querySelectorAll('.operation-mode-card[data-mode]').forEach(card => {
+    card.addEventListener('click', function() {
+        document.querySelectorAll('.operation-mode-card[data-mode]').forEach(c => c.classList.remove('selected'));
+        this.classList.add('selected');
+        operationMode = this.dataset.mode;
+    });
+});
+
+document.getElementById('btn-step-4-back').addEventListener('click', () => goToStep(3));
+document.getElementById('btn-step-4-next').addEventListener('click', () => {
+    // Populate review page
+    populateReview();
+    goToStep(5);
+});
+
+// Step 5: Review & Import
+function populateReview() {
+    document.getElementById('review-filename').textContent = document.getElementById('filename').textContent;
+    document.getElementById('review-table').textContent = selectedTable.replace('_', ' ').toUpperCase();
+    document.getElementById('review-rows').textContent = document.getElementById('row-count').textContent;
+    
+    // Show master class if applicable
+    if (selectedTable === 'master_classes' && selectedMasterClass) {
+        document.getElementById('review-masterclass-row').style.display = 'block';
+        document.getElementById('review-masterclass').textContent = selectedMasterClass;
+    } else {
+        document.getElementById('review-masterclass-row').style.display = 'none';
+    }
+    
+    const modeNames = {
+        'create': 'Create Only',
+        'update': 'Update Only',
+        'create_update': 'Create & Update'
+    };
+    document.getElementById('review-mode').textContent = modeNames[operationMode];
+    document.getElementById('review-mapped-count').textContent = Object.keys(columnMapping).length;
+    document.getElementById('review-update-keys').textContent = updateKeys.length > 0 ? updateKeys.join(', ') : 'email (default)';
+    
+    // Generate preview table
+    const previewTable = document.getElementById('preview-table');
+    const mappedCols = Object.values(columnMapping);
+    
+    let html = '<thead><tr>';
+    mappedCols.forEach(col => {
+        html += `<th>${col}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+    
+    previewData.forEach(row => {
+        html += '<tr>';
+        Object.keys(columnMapping).forEach(csvCol => {
+            const value = row[csvCol] || '-';
+            html += `<td>${value}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody>';
+    
+    previewTable.innerHTML = html;
+}
+
+document.getElementById('btn-step-5-back').addEventListener('click', () => goToStep(4));
+document.getElementById('btn-import').addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to start the import?')) return;
+    
+    document.getElementById('review-buttons').classList.add('d-none');
+    document.getElementById('import-progress').classList.remove('d-none');
+    
+    try {
+        const requestData = {
+            file_id: uploadedFile,
+            table_name: selectedTable,
+            column_mapping: columnMapping,
+            operation_mode: operationMode,
+            update_keys: updateKeys.length > 0 ? updateKeys : ['email']
+        };
+        
+        // Add master_class_name if importing master classes
+        if (selectedTable === 'master_classes' && selectedMasterClass) {
+            requestData.master_class_name = selectedMasterClass;
+        }
+        
+        const response = await fetch('/api/import/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showImportResult(data.stats);
+        } else {
+            alert('Import failed: ' + (data.error || 'Unknown error'));
+            document.getElementById('review-buttons').classList.remove('d-none');
+        }
+    } catch (error) {
+        console.error('Import error:', error);
+        alert('Import failed: ' + (error.message || 'Unknown error'));
+        document.getElementById('review-buttons').classList.remove('d-none');
+    } finally {
+        document.getElementById('import-progress').classList.add('d-none');
+    }
+});
+
+function showImportResult(stats) {
+    const resultDiv = document.getElementById('import-result');
+    resultDiv.classList.remove('d-none');
+    
+    let html = '<div class="alert alert-success"><h5><i class="bi bi-check-circle"></i> Import Completed!</h5></div>';
+    html += '<div class="stats-summary">';
+    html += `<div class="row">
+        <div class="col-md-3 text-center">
+            <h3 class="text-primary">${stats.total_rows}</h3>
+            <p>Total Rows</p>
+        </div>
+        <div class="col-md-3 text-center">
+            <h3 class="text-success">${stats.created}</h3>
+            <p>Created</p>
+        </div>
+        <div class="col-md-3 text-center">
+            <h3 class="text-info">${stats.updated}</h3>
+            <p>Updated</p>
+        </div>
+        <div class="col-md-3 text-center">
+            <h3 class="text-warning">${stats.skipped}</h3>
+            <p>Skipped</p>
+        </div>
+    </div>`;
+    
+    if (stats.errors && stats.errors.length > 0) {
+        html += `<div class="alert alert-warning mt-3">
+            <strong>Errors (${stats.errors.length}):</strong>
+            <ul class="mb-0">`;
+        stats.errors.slice(0, 10).forEach(error => {
+            html += `<li>${error}</li>`;
+        });
+        if (stats.errors.length > 10) {
+            html += `<li>...and ${stats.errors.length - 10} more errors</li>`;
+        }
+        html += '</ul></div>';
+    }
+    
+    html += '</div>';
+    html += '<div class="mt-3"><a href="/import" class="btn btn-primary">Import Another File</a> <a href="/" class="btn btn-secondary">Back to Home</a></div>';
+    
+    resultDiv.innerHTML = html;
+}
+</script>
+
+<!-- Sheet Selection Modal -->
+<div class="modal fade" id="sheetSelectionModal" tabindex="-1" aria-labelledby="sheetSelectionModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sheetSelectionModalLabel">
+                    <i class="bi bi-file-excel"></i> Select Excel Sheet
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>The file <strong id="excelFilename"></strong> contains multiple sheets. Please select which sheet to import:</p>
+                <div class="list-group" id="sheetList">
+                    <!-- Sheet names will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+

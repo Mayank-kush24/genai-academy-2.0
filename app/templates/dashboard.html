@@ -1,0 +1,801 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - GenAI Academy 2.0{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-card {
+        border-left: 4px solid var(--primary-color);
+    }
+    
+    .stat-card.success {
+        border-left-color: var(--secondary-color);
+    }
+    
+    .stat-card.danger {
+        border-left-color: var(--danger-color);
+    }
+    
+    .stat-card.warning {
+        border-left-color: var(--warning-color);
+    }
+    
+    .stat-number {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 0;
+    }
+    
+    .stat-label {
+        color: #6c757d;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .chart-container {
+        position: relative;
+        height: 300px;
+        margin: 20px 0;
+    }
+    
+    .top-performers-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .performer-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 15px;
+        border-bottom: 1px solid #e9ecef;
+    }
+    
+    .performer-item:last-child {
+        border-bottom: none;
+    }
+    
+    .performer-rank {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: var(--primary-color);
+        min-width: 40px;
+    }
+    
+    .performer-info {
+        flex-grow: 1;
+        margin: 0 15px;
+    }
+    
+    .performer-name {
+        font-weight: 600;
+        margin: 0;
+    }
+    
+    .performer-email {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin: 0;
+    }
+    
+    .performer-badges {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--secondary-color);
+    }
+    
+    .loading-spinner {
+        text-align: center;
+        padding: 40px;
+    }
+    
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-top: 30px;
+        margin-bottom: 20px;
+        color: #333;
+    }
+    
+    .progress-custom {
+        height: 25px;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4">
+        <i class="bi bi-graph-up-arrow"></i> Dashboard & Reports
+    </h1>
+    
+    <!-- Loading State -->
+    <div id="loadingState" class="loading-spinner">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-3">Loading dashboard statistics...</p>
+    </div>
+    
+    <!-- Dashboard Content -->
+    <div id="dashboardContent" style="display: none;">
+        
+        <!-- Overview Stats -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stat-card success">
+                    <div class="card-body text-center">
+                        <p class="stat-label mb-2">Total Users</p>
+                        <h2 class="stat-number" id="totalUsers">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body text-center">
+                        <p class="stat-label mb-2">Total Badges</p>
+                        <h2 class="stat-number" id="totalBadges">0</h2>
+                        <small class="text-muted" id="badgeVerificationRate">0% verified</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body text-center">
+                        <p class="stat-label mb-2">Total Profiles</p>
+                        <h2 class="stat-number" id="totalProfiles">0</h2>
+                        <small class="text-muted" id="profileVerificationRate">0% verified</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card warning">
+                    <div class="card-body text-center">
+                        <p class="stat-label mb-2">Masterclass Attendance</p>
+                        <h2 class="stat-number" id="totalMasterclass">0</h2>
+                        <small class="text-muted" id="masterclassUnique">0 unique classes</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Badge and Profile Verification Status -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-patch-check"></i> Badge Verification Status
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Verified</span>
+                                <span id="badgeVerifiedCount">0</span>
+                            </div>
+                            <div class="progress progress-custom">
+                                <div id="badgeVerifiedBar" class="progress-bar bg-success" role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Pending</span>
+                                <span id="badgePendingCount">0</span>
+                            </div>
+                            <div class="progress progress-custom">
+                                <div id="badgePendingBar" class="progress-bar bg-warning" role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Failed</span>
+                                <span id="badgeFailedCount">0</span>
+                            </div>
+                            <div class="progress progress-custom">
+                                <div id="badgeFailedBar" class="progress-bar bg-danger" role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-person-badge"></i> Profile Verification Status
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Verified</span>
+                                <span id="profileVerifiedCount">0</span>
+                            </div>
+                            <div class="progress progress-custom">
+                                <div id="profileVerifiedBar" class="progress-bar bg-success" role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Pending</span>
+                                <span id="profilePendingCount">0</span>
+                            </div>
+                            <div class="progress progress-custom">
+                                <div id="profilePendingBar" class="progress-bar bg-warning" role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Failed</span>
+                                <span id="profileFailedCount">0</span>
+                            </div>
+                            <div class="progress progress-custom">
+                                <div id="profileFailedBar" class="progress-bar bg-danger" role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Demographics Charts -->
+        <h2 class="section-title">Demographics</h2>
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-gender-ambiguous"></i> Gender Distribution
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="genderChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-briefcase"></i> Occupation Distribution
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="occupationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-geo-alt"></i> Top 10 States
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="stateChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-building"></i> Top 10 Cities
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="cityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Course and Masterclass Stats -->
+        <h2 class="section-title">Performance & Engagement</h2>
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-trophy"></i> Top 10 Performers (Most Badges)
+                    </div>
+                    <div class="card-body">
+                        <div class="top-performers-list" id="topPerformersList">
+                            <p class="text-center text-muted">No data available</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-award"></i> Course Badge Statistics
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 400px;">
+                            <canvas id="courseStatsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-people"></i> Masterclass Attendance Statistics
+                    </div>
+                    <div class="card-body">
+                        <!-- Detailed Statistics Table -->
+                        <div class="table-responsive mb-4">
+                            <table class="table table-hover table-bordered align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Master Class Name</th>
+                                        <th class="text-center">Total Viewers</th>
+                                        <th class="text-center bg-success bg-opacity-10">Live Valid</th>
+                                        <th class="text-center bg-danger bg-opacity-10">Live Invalid</th>
+                                        <th class="text-center bg-info bg-opacity-10">Recorded Valid</th>
+                                        <th class="text-center bg-danger bg-opacity-10">Recorded Invalid</th>
+                                        <th class="text-center bg-secondary bg-opacity-10">Pending</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="masterclassTableBody">
+                                    <tr>
+                                        <td colspan="7" class="text-center text-muted">Loading...</td>
+                                    </tr>
+                                </tbody>
+                                <tfoot class="table-light fw-bold">
+                                    <tr>
+                                        <td>Total</td>
+                                        <td class="text-center" id="totalViewersSum">0</td>
+                                        <td class="text-center bg-success bg-opacity-10" id="liveValidSum">0</td>
+                                        <td class="text-center bg-danger bg-opacity-10" id="liveInvalidSum">0</td>
+                                        <td class="text-center bg-info bg-opacity-10" id="recordedValidSum">0</td>
+                                        <td class="text-center bg-danger bg-opacity-10" id="recordedInvalidSum">0</td>
+                                        <td class="text-center bg-secondary bg-opacity-10" id="pendingSum">0</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        
+                        <!-- Chart Visualization -->
+                        <h6 class="mb-3">Attendance Visualization</h6>
+                        <div class="chart-container" style="height: 350px;">
+                            <canvas id="masterclassChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+    let dashboardData = null;
+    
+    // Fetch dashboard data
+    async function loadDashboard() {
+        try {
+            const response = await fetch('/api/dashboard/stats');
+            const data = await response.json();
+            
+            if (data.success) {
+                dashboardData = data;
+                renderDashboard(data);
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('dashboardContent').style.display = 'block';
+            } else {
+                throw new Error(data.error || 'Failed to load dashboard');
+            }
+        } catch (error) {
+            console.error('Error loading dashboard:', error);
+            document.getElementById('loadingState').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> Failed to load dashboard: ${error.message}
+                </div>
+            `;
+        }
+    }
+    
+    function renderDashboard(data) {
+        const { stats, demographics, courses, masterclasses } = data;
+        
+        // Overview stats
+        document.getElementById('totalUsers').textContent = stats.users.total.toLocaleString();
+        document.getElementById('totalBadges').textContent = stats.badges.total.toLocaleString();
+        document.getElementById('badgeVerificationRate').textContent = `${stats.badges.verification_rate}% verified`;
+        document.getElementById('totalProfiles').textContent = stats.profiles.total.toLocaleString();
+        document.getElementById('profileVerificationRate').textContent = `${stats.profiles.verification_rate}% verified`;
+        document.getElementById('totalMasterclass').textContent = stats.masterclasses.total_attendance.toLocaleString();
+        document.getElementById('masterclassUnique').textContent = `${stats.masterclasses.unique_classes} unique classes`;
+        
+        // Badge verification bars
+        const badgeTotal = stats.badges.total || 1;
+        const badgeVerifiedPct = ((stats.badges.verified / badgeTotal) * 100).toFixed(1);
+        const badgePendingPct = ((stats.badges.pending / badgeTotal) * 100).toFixed(1);
+        const badgeFailedPct = ((stats.badges.failed / badgeTotal) * 100).toFixed(1);
+        
+        document.getElementById('badgeVerifiedCount').textContent = stats.badges.verified.toLocaleString();
+        document.getElementById('badgeVerifiedBar').style.width = badgeVerifiedPct + '%';
+        document.getElementById('badgeVerifiedBar').textContent = badgeVerifiedPct + '%';
+        
+        document.getElementById('badgePendingCount').textContent = stats.badges.pending.toLocaleString();
+        document.getElementById('badgePendingBar').style.width = badgePendingPct + '%';
+        document.getElementById('badgePendingBar').textContent = badgePendingPct + '%';
+        
+        document.getElementById('badgeFailedCount').textContent = stats.badges.failed.toLocaleString();
+        document.getElementById('badgeFailedBar').style.width = badgeFailedPct + '%';
+        document.getElementById('badgeFailedBar').textContent = badgeFailedPct + '%';
+        
+        // Profile verification bars
+        const profileTotal = stats.profiles.total || 1;
+        const profileVerifiedPct = ((stats.profiles.verified / profileTotal) * 100).toFixed(1);
+        const profilePendingPct = ((stats.profiles.pending / profileTotal) * 100).toFixed(1);
+        const profileFailedPct = ((stats.profiles.failed / profileTotal) * 100).toFixed(1);
+        
+        document.getElementById('profileVerifiedCount').textContent = stats.profiles.verified.toLocaleString();
+        document.getElementById('profileVerifiedBar').style.width = profileVerifiedPct + '%';
+        document.getElementById('profileVerifiedBar').textContent = profileVerifiedPct + '%';
+        
+        document.getElementById('profilePendingCount').textContent = stats.profiles.pending.toLocaleString();
+        document.getElementById('profilePendingBar').style.width = profilePendingPct + '%';
+        document.getElementById('profilePendingBar').textContent = profilePendingPct + '%';
+        
+        document.getElementById('profileFailedCount').textContent = stats.profiles.failed.toLocaleString();
+        document.getElementById('profileFailedBar').style.width = profileFailedPct + '%';
+        document.getElementById('profileFailedBar').textContent = profileFailedPct + '%';
+        
+        // Top performers
+        renderTopPerformers(stats.top_performers);
+        
+        // Charts
+        renderGenderChart(demographics.gender);
+        renderOccupationChart(demographics.occupation);
+        renderStateChart(demographics.state);
+        renderCityChart(demographics.city);
+        renderCourseStatsChart(courses);
+        renderMasterclassChart(masterclasses);
+    }
+    
+    function renderTopPerformers(performers) {
+        const container = document.getElementById('topPerformersList');
+        
+        if (!performers || performers.length === 0) {
+            container.innerHTML = '<p class="text-center text-muted">No performers yet</p>';
+            return;
+        }
+        
+        container.innerHTML = performers.map((performer, index) => `
+            <div class="performer-item">
+                <div class="performer-rank">#${index + 1}</div>
+                <div class="performer-info">
+                    <p class="performer-name">${performer.name}</p>
+                    <p class="performer-email">${performer.email}</p>
+                </div>
+                <div class="performer-badges">
+                    <i class="bi bi-patch-check-fill"></i> ${performer.badges}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    function renderGenderChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('genderChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.label),
+                datasets: [{
+                    data: data.map(d => d.count),
+                    backgroundColor: ['#4285f4', '#ea4335', '#fbbc04', '#34a853'],
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderOccupationChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('occupationChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: data.map(d => d.label),
+                datasets: [{
+                    data: data.map(d => d.count),
+                    backgroundColor: [
+                        '#4285f4', '#34a853', '#fbbc04', '#ea4335', '#9b59b6',
+                        '#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#1abc9c'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderStateChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('stateChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label),
+                datasets: [{
+                    label: 'Users',
+                    data: data.map(d => d.count),
+                    backgroundColor: '#4285f4'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderCityChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('cityChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label),
+                datasets: [{
+                    label: 'Users',
+                    data: data.map(d => d.count),
+                    backgroundColor: '#34a853'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderCourseStatsChart(data) {
+        if (!data || data.length === 0) return;
+        
+        // Limit to top 10 courses by total submissions
+        const topCourses = data
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 10);
+        
+        const ctx = document.getElementById('courseStatsChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: topCourses.map(c => c.problem_statement.substring(0, 30) + '...'),
+                datasets: [
+                    {
+                        label: 'Verified',
+                        data: topCourses.map(c => c.verified),
+                        backgroundColor: '#34a853'
+                    },
+                    {
+                        label: 'Pending',
+                        data: topCourses.map(c => c.pending),
+                        backgroundColor: '#fbbc04'
+                    },
+                    {
+                        label: 'Failed',
+                        data: topCourses.map(c => c.failed),
+                        backgroundColor: '#ea4335'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderMasterclassChart(data) {
+        if (!data || data.length === 0) {
+            document.getElementById('masterclassTableBody').innerHTML = 
+                '<tr><td colspan="7" class="text-center text-muted">No master class data available</td></tr>';
+            return;
+        }
+        
+        // Populate the detailed table
+        renderMasterclassTable(data);
+        
+        // Render the chart
+        const ctx = document.getElementById('masterclassChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(m => m.name),
+                datasets: [
+                    {
+                        label: 'Live Valid',
+                        data: data.map(m => m.live_valid),
+                        backgroundColor: '#28a745'
+                    },
+                    {
+                        label: 'Live Invalid',
+                        data: data.map(m => m.live_invalid),
+                        backgroundColor: '#dc3545'
+                    },
+                    {
+                        label: 'Recorded Valid',
+                        data: data.map(m => m.recorded_valid),
+                        backgroundColor: '#17a2b8'
+                    },
+                    {
+                        label: 'Recorded Invalid',
+                        data: data.map(m => m.recorded_invalid),
+                        backgroundColor: '#fd7e14'
+                    },
+                    {
+                        label: 'Pending',
+                        data: data.map(m => m.pending),
+                        backgroundColor: '#6c757d'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                label += context.parsed.y;
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderMasterclassTable(data) {
+        const tbody = document.getElementById('masterclassTableBody');
+        
+        // Calculate totals
+        let totalViewers = 0;
+        let totalLiveValid = 0;
+        let totalLiveInvalid = 0;
+        let totalRecordedValid = 0;
+        let totalRecordedInvalid = 0;
+        let totalPending = 0;
+        
+        // Generate table rows
+        let html = '';
+        data.forEach(mc => {
+            totalViewers += mc.total;
+            totalLiveValid += mc.live_valid;
+            totalLiveInvalid += mc.live_invalid;
+            totalRecordedValid += mc.recorded_valid;
+            totalRecordedInvalid += mc.recorded_invalid;
+            totalPending += mc.pending;
+            
+            html += `
+                <tr>
+                    <td><strong>${mc.name}</strong></td>
+                    <td class="text-center">${mc.total}</td>
+                    <td class="text-center bg-success bg-opacity-10">
+                        <span class="badge bg-success">${mc.live_valid}</span>
+                    </td>
+                    <td class="text-center bg-danger bg-opacity-10">
+                        <span class="badge bg-danger">${mc.live_invalid}</span>
+                    </td>
+                    <td class="text-center bg-info bg-opacity-10">
+                        <span class="badge bg-info">${mc.recorded_valid}</span>
+                    </td>
+                    <td class="text-center bg-danger bg-opacity-10">
+                        <span class="badge bg-warning text-dark">${mc.recorded_invalid}</span>
+                    </td>
+                    <td class="text-center bg-secondary bg-opacity-10">
+                        <span class="badge bg-secondary">${mc.pending}</span>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        tbody.innerHTML = html;
+        
+        // Update footer totals
+        document.getElementById('totalViewersSum').textContent = totalViewers;
+        document.getElementById('liveValidSum').textContent = totalLiveValid;
+        document.getElementById('liveInvalidSum').textContent = totalLiveInvalid;
+        document.getElementById('recordedValidSum').textContent = totalRecordedValid;
+        document.getElementById('recordedInvalidSum').textContent = totalRecordedInvalid;
+        document.getElementById('pendingSum').textContent = totalPending;
+    }
+    
+    // Load dashboard on page load
+    document.addEventListener('DOMContentLoaded', loadDashboard);
+</script>
+{% endblock %}
+

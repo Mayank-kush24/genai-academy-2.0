@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}Reports - GenAI Academy 2.0{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">
+    <i class="bi bi-graph-up"></i> Reports & Statistics
+</h2>
+
+<!-- Overview Stats -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <h2 class="text-primary">{{ stats.users.total }}</h2>
+                <p class="text-muted mb-0">Total Users</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <h2 class="text-success">{{ stats.badges.verified }}</h2>
+                <p class="text-muted mb-0">Badges Verified</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <h2 class="text-warning">{{ stats.badges.pending }}</h2>
+                <p class="text-muted mb-0">Badges Pending</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <h2 class="text-info">{{ stats.masterclasses.total_attendance }}</h2>
+                <p class="text-muted mb-0">Masterclass Views</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Badge Verification Stats -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-patch-check"></i> Badge Verification Statistics
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <p class="mb-1"><strong>Total Submissions:</strong> {{ stats.badges.total }}</p>
+            </div>
+            <div class="col-md-4">
+                <p class="mb-1"><strong>Verified:</strong> 
+                    <span class="badge badge-verified">{{ stats.badges.verified }}</span>
+                    {% if stats.badges.total > 0 %}
+                        ({{ "%.1f"|format((stats.badges.verified / stats.badges.total * 100)) }}%)
+                    {% endif %}
+                </p>
+            </div>
+            <div class="col-md-4">
+                <p class="mb-1"><strong>Failed:</strong> 
+                    <span class="badge badge-failed">{{ stats.badges.failed }}</span>
+                    {% if stats.badges.total > 0 %}
+                        ({{ "%.1f"|format((stats.badges.failed / stats.badges.total * 100)) }}%)
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        
+        <div class="progress" style="height: 30px;">
+            {% if stats.badges.total > 0 %}
+                <div class="progress-bar bg-success" style="width: {{ (stats.badges.verified / stats.badges.total * 100) }}%">
+                    {{ stats.badges.verified }}
+                </div>
+                <div class="progress-bar bg-warning" style="width: {{ (stats.badges.pending / stats.badges.total * 100) }}%">
+                    {{ stats.badges.pending }}
+                </div>
+                <div class="progress-bar bg-danger" style="width: {{ (stats.badges.failed / stats.badges.total * 100) }}%">
+                    {{ stats.badges.failed }}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Course Statistics -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-book"></i> Course-wise Statistics
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Course / Problem Statement</th>
+                        <th class="text-center">Total</th>
+                        <th class="text-center">Verified</th>
+                        <th class="text-center">Failed</th>
+                        <th class="text-center">Pending</th>
+                        <th>Progress</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for course in course_stats %}
+                    <tr>
+                        <td>{{ course.problem_statement }}</td>
+                        <td class="text-center">{{ course.total_submissions }}</td>
+                        <td class="text-center">
+                            <span class="badge badge-verified">{{ course.verified }}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge badge-failed">{{ course.failed }}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge badge-pending">{{ course.pending }}</span>
+                        </td>
+                        <td>
+                            <div class="progress" style="height: 20px;">
+                                {% if course.total_submissions > 0 %}
+                                    <div class="progress-bar bg-success" style="width: {{ (course.verified / course.total_submissions * 100) }}%"></div>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Masterclass Statistics -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-camera-video"></i> Masterclass Attendance
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Masterclass</th>
+                        <th class="text-center">Total Attendees</th>
+                        <th class="text-center">Live</th>
+                        <th class="text-center">Recorded</th>
+                        <th>Distribution</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for mc in masterclass_stats %}
+                    <tr>
+                        <td>{{ mc.master_class_name }}</td>
+                        <td class="text-center">{{ mc.total_attendees }}</td>
+                        <td class="text-center">
+                            <span class="badge bg-success">{{ mc.live }}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-info">{{ mc.recorded }}</span>
+                        </td>
+                        <td>
+                            <div class="progress" style="height: 20px;">
+                                {% if mc.total_attendees > 0 %}
+                                    <div class="progress-bar bg-success" style="width: {{ (mc.live / mc.total_attendees * 100) }}%"></div>
+                                    <div class="progress-bar bg-info" style="width: {{ (mc.recorded / mc.total_attendees * 100) }}%"></div>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Changes -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-clock-history"></i> Recent Changes
+        </h5>
+    </div>
+    <div class="card-body">
+        {% if recent_changes %}
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Table</th>
+                            <th>Action</th>
+                            <th>Record</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in recent_changes %}
+                        <tr>
+                            <td>
+                                <small>{{ log.changed_at.strftime('%Y-%m-%d %H:%M:%S') if log.changed_at else '-' }}</small>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">{{ log.table_name }}</span>
+                            </td>
+                            <td>
+                                {% if log.action == 'INSERT' %}
+                                    <span class="badge bg-success">{{ log.action }}</span>
+                                {% elif log.action == 'UPDATE' %}
+                                    <span class="badge bg-info">{{ log.action }}</span>
+                                {% elif log.action == 'DELETE' %}
+                                    <span class="badge bg-danger">{{ log.action }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small>{{ log.record_identifier }}</small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-muted mb-0">No recent changes</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
