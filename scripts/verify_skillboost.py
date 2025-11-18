@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import db_manager, Course, SkillboostProfile
+from sqlalchemy import or_
 from config import Config
 
 
@@ -222,6 +223,116 @@ class SkillboostVerifier:
         else:
             return False, f"Invalid Profile (Status Code: {response.status_code})"
     
+    def extract_completion_date(self, badge_url):
+        """Extract completion date from badge page (supports both Google Skills Boost and Credly)"""
+        response = self.make_request(badge_url)
+        
+        if response is None:
+            return None, "Badge page not accessible"
+        
+        try:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            parsed_url = urlparse(badge_url)
+            
+            # Check if it's a Credly badge
+            if 'credly.com' in parsed_url.netloc:
+                # Credly-specific date extraction
+                # Look for date in various formats, including "Date issued:" prefix
+                date_patterns = [
+                    r'Date issued:\s*(\w+ \d{1,2}, \d{4})',  # "Date issued: August 31, 2025"
+                    r'(\w+ \d{1,2}, \d{4})',  # "Nov 14, 2025" or "August 31, 2025"
+                    r'(\d{1,2}/\d{1,2}/\d{4})',  # "11/14/2025"
+                    r'(\d{4}-\d{2}-\d{2})',  # "2025-11-14"
+                ]
+                
+                # Search in text content
+                page_text = soup.get_text()
+                for pattern in date_patterns:
+                    match = re.search(pattern, page_text, re.IGNORECASE)
+                    if match:
+                        date_str = match.group(1).strip()
+                        try:
+                            # Try parsing different date formats
+                            if ',' in date_str:
+                                # Try full month name first (e.g., "August 31, 2025")
+                                try:
+                                    date_obj = datetime.strptime(date_str, '%B %d, %Y').date()
+                                except ValueError:
+                                    # Try abbreviated month (e.g., "Aug 31, 2025")
+                                    try:
+                                        date_obj = datetime.strptime(date_str, '%b %d, %Y').date()
+                                    except ValueError:
+                                        continue
+                            elif '/' in date_str:
+                                # Format: "11/14/2025"
+                                date_obj = datetime.strptime(date_str, '%m/%d/%Y').date()
+                            else:
+                                # Format: "2025-11-14"
+                                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+                            return date_obj, None
+                        except ValueError:
+                            continue
+                
+                # Look for date in meta tags or structured data
+                meta_date = soup.find('meta', property='article:published_time')
+                if meta_date and meta_date.get('content'):
+                    try:
+                        date_obj = datetime.fromisoformat(meta_date['content'].replace('Z', '+00:00')).date()
+                        return date_obj, None
+                    except (ValueError, AttributeError):
+                        pass
+            
+            else:
+                # Google Cloud Skills Boost date extraction
+                # Look for date patterns in the page, including formats like "Aug 30, 2025"
+                date_patterns = [
+                    r'(\w+ \d{1,2}, \d{4})',  # "Nov 14, 2025" or "August 31, 2025" or "Aug 30, 2025"
+                    r'(\d{1,2}/\d{1,2}/\d{4})',  # "11/14/2025"
+                    r'(\d{4}-\d{2}-\d{2})',  # "2025-11-14"
+                ]
+                
+                # Search in text content
+                page_text = soup.get_text()
+                for pattern in date_patterns:
+                    match = re.search(pattern, page_text, re.IGNORECASE)
+                    if match:
+                        date_str = match.group(1).strip()
+                        try:
+                            # Try parsing different date formats
+                            if ',' in date_str:
+                                # Try full month name first (e.g., "August 31, 2025")
+                                try:
+                                    date_obj = datetime.strptime(date_str, '%B %d, %Y').date()
+                                except ValueError:
+                                    # Try abbreviated month (e.g., "Aug 31, 2025")
+                                    try:
+                                        date_obj = datetime.strptime(date_str, '%b %d, %Y').date()
+                                    except ValueError:
+                                        continue
+                            elif '/' in date_str:
+                                # Format: "11/14/2025"
+                                date_obj = datetime.strptime(date_str, '%m/%d/%Y').date()
+                            else:
+                                # Format: "2025-11-14"
+                                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+                            return date_obj, None
+                        except ValueError:
+                            continue
+                
+                # Look for date in time elements or structured data
+                time_elem = soup.find('time')
+                if time_elem and time_elem.get('datetime'):
+                    try:
+                        date_obj = datetime.fromisoformat(time_elem['datetime'].replace('Z', '+00:00')).date()
+                        return date_obj, None
+                    except (ValueError, AttributeError):
+                        pass
+            
+            return None, "Could not extract completion date from badge page"
+            
+        except Exception as e:
+            return None, f"Error parsing badge page for date: {str(e)}"
+    
     def extract_course_from_badge(self, badge_url):
         """Extract course name from badge page (supports both Google Skills Boost and Credly)"""
         response = self.make_request(badge_url)
@@ -305,10 +416,11 @@ class SkillboostVerifier:
             return None, f"Error parsing badge page: {str(e)}"
     
     def verify_badge_url(self, badge_url, expected_course):
-        """Verify badge URL and match with expected course (supports Google Skills Boost and Credly)"""
+        """Verify badge URL and match with expected course (supports Google Skills Boost and Credly)
+        Also checks completion date >= 2025-10-27"""
         # Clean the URL
         if not isinstance(badge_url, str) or not badge_url.strip():
-            return False, "Empty or Invalid URL"
+            return False, "Empty or Invalid URL", None
         
         badge_url = badge_url.strip()
         
@@ -316,7 +428,7 @@ class SkillboostVerifier:
         try:
             parsed_url = urlparse(badge_url)
         except Exception as e:
-            return False, f"URL parsing error: {str(e)}"
+            return False, f"URL parsing error: {str(e)}", None
         
         # Check domain - must be either www.cloudskillsboost.google, www.skills.google, or www.credly.com
         valid_google_domains = ["www.cloudskillsboost.google", "www.skills.google"]
@@ -324,27 +436,44 @@ class SkillboostVerifier:
         is_credly_badge = parsed_url.netloc == "www.credly.com"
         
         if not (is_google_badge or is_credly_badge):
-            return False, f"Incorrect Domain (must be {', '.join(valid_google_domains)} or www.credly.com)"
+            return False, f"Incorrect Domain (must be {', '.join(valid_google_domains)} or www.credly.com)", None
         
         # Validate path based on domain
         if is_google_badge:
             # Check path - must match /public_profiles/{id}/badges/{badge_id}
             if not re.match(r'^/public_profiles/[a-zA-Z0-9\-]+/badges/\d+', parsed_url.path):
-                return False, "Incorrect Path (must be /public_profiles/{id}/badges/{badge_id})"
+                return False, "Incorrect Path (must be /public_profiles/{id}/badges/{badge_id})", None
         
         elif is_credly_badge:
             # Check path - must match /badges/{badge_id}
             if not re.match(r'^/badges/[a-zA-Z0-9\-]+', parsed_url.path):
-                return False, "Incorrect Path (must be /badges/{badge_id})"
+                return False, "Incorrect Path (must be /badges/{badge_id})", None
         
         # Extract course name from badge page
         course_name, error = self.extract_course_from_badge(badge_url)
         
         if error:
-            return None, error  # None means pending/retry later
+            return None, error, None  # None means pending/retry later
         
         if not course_name:
-            return None, "Could not extract course information"
+            return None, "Could not extract course information", None
+        
+        # Extract completion date
+        completion_date, date_error = self.extract_completion_date(badge_url)
+        
+        # Minimum required date: October 27, 2025
+        MIN_REQUIRED_DATE = datetime(2025, 10, 27).date()
+        
+        # Check date requirement
+        if completion_date is None:
+            # If we can't extract date, we'll still verify the course but mark date as missing
+            # The date check will be done separately in the verification logic
+            # Note: This allows verification to proceed, but the badge will need to be re-verified
+            # once the date is extracted to determine final validity
+            pass
+        elif completion_date < MIN_REQUIRED_DATE:
+            # Date is before required date - mark as invalid immediately
+            return False, f"Badge completion date ({completion_date}) is before required date (2025-10-27)", completion_date
         
         # Determine badge platform for better reporting
         platform = "Credly" if is_credly_badge else "Google Skills Boost"
@@ -356,11 +485,11 @@ class SkillboostVerifier:
         
         # Direct match
         if course_normalized == expected_normalized:
-            return True, f"Course verified ({platform} - exact match)"
+            return True, f"Course verified ({platform} - exact match)", completion_date
         
         # Contains match
         if expected_normalized in course_normalized or course_normalized in expected_normalized:
-            return True, f"Course verified ({platform} - matched: {course_name})"
+            return True, f"Course verified ({platform} - matched: {course_name})", completion_date
         
         # Partial word match (at least 60% of words match)
         course_words = set(course_normalized.split())
@@ -369,9 +498,9 @@ class SkillboostVerifier:
         if len(expected_words) > 0:
             match_ratio = len(course_words & expected_words) / len(expected_words)
             if match_ratio >= 0.6:
-                return True, f"Course verified ({platform} - partial match: {course_name})"
+                return True, f"Course verified ({platform} - partial match: {course_name})", completion_date
         
-        return False, f"Course mismatch ({platform}). Expected: '{expected_course}', Found: '{course_name}'"
+        return False, f"Course mismatch ({platform}). Expected: '{expected_course}', Found: '{course_name}'", completion_date
     
     def verify_single_profile(self, profile_data):
         """Verify a single profile (worker function for parallel processing)"""
@@ -498,35 +627,57 @@ class SkillboostVerifier:
                     'email': email,
                     'problem_statement': problem_statement,
                     'valid': False,
-                    'remarks': 'No badge link provided'
+                    'remarks': 'No badge link provided',
+                    'completion_date': None
                 }
             
-            valid, remarks = self.verify_badge_url(badge_link, problem_statement)
+            valid, remarks, completion_date = self.verify_badge_url(badge_link, problem_statement)
+            
+            # Additional date check if date was extracted but verification passed
+            MIN_REQUIRED_DATE = datetime(2025, 10, 27).date()
+            if valid is True and completion_date and completion_date < MIN_REQUIRED_DATE:
+                valid = False
+                remarks = f"Badge completion date ({completion_date}) is before required date (2025-10-27)"
             
             return {
                 'email': email,
                 'problem_statement': problem_statement,
                 'valid': valid,
-                'remarks': remarks
+                'remarks': remarks,
+                'completion_date': completion_date
             }
         except Exception as e:
             return {
                 'email': email,
                 'problem_statement': problem_statement,
                 'valid': None,
-                'remarks': f'Verification error: {str(e)}'
+                'remarks': f'Verification error: {str(e)}',
+                'completion_date': None
             }
     
-    def verify_badges(self, limit=None):
-        """Verify all unverified course badges using parallel processing"""
+    def verify_badges(self, limit=None, force_reverify=False):
+        """Verify all unverified course badges using parallel processing
+        
+        Args:
+            limit: Maximum number of badges to verify
+            force_reverify: If True, also reverify badges that are already verified but missing completion_date
+        """
         db_session = db_manager.get_session()
         
         try:
-            # Get badges that need verification (valid is NULL and have badge link)
-            query = db_session.query(Course).filter(
-                Course.valid.is_(None),
-                Course.share_skill_badge_public_link.isnot(None)
-            )
+            # Get badges that need verification
+            if force_reverify:
+                # Include badges that are verified but missing completion_date (need date extraction)
+                query = db_session.query(Course).filter(
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.completion_date.is_(None)  # Missing completion date
+                )
+            else:
+                # Only get badges that are unverified (valid is NULL)
+                query = db_session.query(Course).filter(
+                    Course.valid.is_(None),
+                    Course.share_skill_badge_public_link.isnot(None)
+                )
             
             if limit:
                 query = query.limit(limit)
@@ -566,18 +717,37 @@ class SkillboostVerifier:
                     ).first()
                     
                     if badge:
+                        # Always update completion_date if extracted
+                        if result.get('completion_date'):
+                            badge.completion_date = result['completion_date']
+                        
                         if result['valid'] is not None:
-                            badge.valid = result['valid']
-                            badge.remarks = result['remarks']
-                            badge.updated_at = datetime.utcnow()
+                            # Check date requirement even if verification passed
+                            MIN_REQUIRED_DATE = datetime(2025, 10, 27).date()
                             
-                            with self.stats_lock:
-                                if result['valid']:
+                            # If we have a completion date, check if it's before the required date
+                            if badge.completion_date and badge.completion_date < MIN_REQUIRED_DATE:
+                                # Date is before required date - mark as invalid regardless of course match
+                                badge.valid = False
+                                badge.remarks = f"Badge completion date ({badge.completion_date}) is before required date (2025-10-27)"
+                                with self.stats_lock:
+                                    self.stats['badges_failed'] += 1
+                                    status = f"✗ (Date {badge.completion_date} < 2025-10-27)"
+                            elif result['valid'] is True:
+                                # Course matches and date is valid (or no date extracted yet)
+                                badge.valid = True
+                                badge.remarks = result['remarks']
+                                with self.stats_lock:
                                     self.stats['badges_verified'] += 1
                                     status = '✓'
-                                else:
+                            else:
+                                # Course doesn't match
+                                badge.valid = False
+                                badge.remarks = result['remarks']
+                                with self.stats_lock:
                                     self.stats['badges_failed'] += 1
                                     status = f"✗ ({result['remarks'][:30]}...)"
+                            badge.updated_at = datetime.utcnow()
                         else:
                             badge.remarks = result['remarks']
                             with self.stats_lock:
@@ -615,15 +785,23 @@ class SkillboostVerifier:
         print("="*60)
 
 
-def run_verification(profiles=True, badges=True, limit=None, max_workers=10):
-    """Main verification function"""
+def run_verification(profiles=True, badges=True, limit=None, max_workers=10, force_reverify=False):
+    """Main verification function
+    
+    Args:
+        profiles: Verify profiles
+        badges: Verify badges
+        limit: Limit number of records
+        max_workers: Number of parallel workers
+        force_reverify: If True, reverify badges missing completion_date even if already verified
+    """
     verifier = SkillboostVerifier(max_workers=max_workers)
     
     if profiles:
         verifier.verify_profiles(limit=limit)
     
     if badges:
-        verifier.verify_badges(limit=limit)
+        verifier.verify_badges(limit=limit, force_reverify=force_reverify)
     
     verifier.print_summary()
 
@@ -636,6 +814,7 @@ def main():
     parser.add_argument('--badges-only', action='store_true', help='Verify only badges')
     parser.add_argument('--limit', type=int, help='Limit number of records to verify')
     parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers (default: 10, recommended: 5-20)')
+    parser.add_argument('--force-reverify', action='store_true', help='Reverify badges missing completion_date even if already verified')
     
     args = parser.parse_args()
     
@@ -648,12 +827,14 @@ def main():
     print("="*60)
     print("Starting Skillboost Verification with Parallel Processing")
     print(f"Workers: {args.workers}")
+    if args.force_reverify:
+        print("Mode: Force re-verification (will extract dates from already-verified badges)")
     print("="*60)
     
     profiles = not args.badges_only
     badges = not args.profiles_only
     
-    run_verification(profiles=profiles, badges=badges, limit=args.limit, max_workers=args.workers)
+    run_verification(profiles=profiles, badges=badges, limit=args.limit, max_workers=args.workers, force_reverify=args.force_reverify)
 
 
 if __name__ == '__main__':

@@ -1,8 +1,43 @@
 """
 Optimized database queries for common operations
 """
+from datetime import date
 from sqlalchemy import func, case, and_, or_
 from app.database import UserPII, Course, SkillboostProfile, MasterClass, MasterLog
+
+# Minimum required completion date for badges to be considered valid
+MIN_BADGE_COMPLETION_DATE = date(2025, 10, 27)
+
+def is_badge_valid(course):
+    """
+    Check if a badge is valid considering both the valid flag and completion date requirement.
+    A badge is valid only if:
+    1. valid = True
+    2. AND completion_date >= 2025-10-27 (or completion_date IS NULL for badges verified before date requirement)
+    
+    Note: Badges with completion_date = NULL are considered valid only if they were verified
+    before the date requirement was added. Once a date is extracted, it must be >= 2025-10-27.
+    """
+    if course.valid is not True:
+        return False
+    
+    # Safely check completion_date - handle case where column might not exist yet
+    try:
+        completion_date = course.completion_date
+    except (AttributeError, KeyError):
+        # Column doesn't exist in database yet - consider valid for backward compatibility
+        return True
+    
+    # If completion_date is None, consider it valid for backward compatibility
+    # (old records that don't have completion_date yet - they need to be re-verified)
+    # However, if the badge was recently updated and still has no date, it might be invalid
+    # For now, we'll consider NULL dates as valid to avoid breaking existing data
+    # But badges should be re-verified to extract dates
+    if completion_date is None:
+        return True
+    
+    # Check if completion date is on or after the minimum required date
+    return completion_date >= MIN_BADGE_COMPLETION_DATE
 
 
 def get_user_complete_profile(session, email):
@@ -55,13 +90,20 @@ def get_verification_statistics(session):
         func.sum(case((SkillboostProfile.valid.is_(None), 1), else_=0)).label('pending')
     ).first()
     
-    # Badge verification stats
-    badge_stats = session.query(
-        func.count(Course.email).label('total'),
-        func.sum(case((Course.valid == True, 1), else_=0)).label('verified'),
-        func.sum(case((Course.valid == False, 1), else_=0)).label('failed'),
-        func.sum(case((Course.valid.is_(None), 1), else_=0)).label('pending')
-    ).first()
+    # Badge verification stats (considering date requirement)
+    # Count badges that are truly valid (valid=True AND date requirement met)
+    all_courses = session.query(Course).all()
+    verified_count = sum(1 for c in all_courses if is_badge_valid(c))
+    failed_count = sum(1 for c in all_courses if c.valid is False)
+    pending_count = sum(1 for c in all_courses if c.valid.is_(None))
+    total_count = len(all_courses)
+    
+    badge_stats = type('obj', (object,), {
+        'total': total_count,
+        'verified': verified_count,
+        'failed': failed_count,
+        'pending': pending_count
+    })()
     
     # User stats
     user_stats = session.query(
@@ -167,12 +209,11 @@ def get_masterclass_statistics(session):
 def get_user_course_count(session, email):
     """Get count of courses for a user"""
     
-    count = session.query(func.count(Course.problem_statement)).filter(
-        Course.email == email,
-        Course.valid == True
-    ).scalar()
+    # Count valid courses considering date requirement
+    user_courses = session.query(Course).filter(Course.email == email).all()
+    valid_count = sum(1 for c in user_courses if is_badge_valid(c))
     
-    return count or 0
+    return valid_count
 
 
 def get_recent_changes(session, limit=50):
@@ -186,25 +227,31 @@ def get_recent_changes(session, limit=50):
 
 
 def get_users_with_course_completion(session, min_courses=1, limit=100):
-    """Get users who have completed at least N courses"""
+    """Get users who have completed at least N courses (considering date requirement)"""
     
-    users = session.query(
-        UserPII.email,
-        UserPII.name,
-        func.count(Course.problem_statement).label('course_count')
-    ).join(
+    # Get all users with their courses and filter by valid badges (considering date requirement)
+    all_users_courses = session.query(UserPII, Course).join(
         Course, UserPII.email == Course.email
-    ).filter(
-        Course.valid == True
-    ).group_by(
-        UserPII.email, UserPII.name
-    ).having(
-        func.count(Course.problem_statement) >= min_courses
-    ).order_by(
-        func.count(Course.problem_statement).desc()
-    ).limit(limit).all()
+    ).all()
     
-    return users
+    # Group by user and count valid badges
+    user_badge_counts = {}
+    for user, course in all_users_courses:
+        if user.email not in user_badge_counts:
+            user_badge_counts[user.email] = {'name': user.name, 'email': user.email, 'count': 0}
+        if is_badge_valid(course):
+            user_badge_counts[user.email]['count'] += 1
+    
+    # Filter users with at least min_courses valid badges
+    filtered_users = [
+        type('obj', (object,), {'email': u['email'], 'name': u['name'], 'course_count': u['count']})()
+        for u in user_badge_counts.values() if u['count'] >= min_courses
+    ]
+    
+    # Sort by badge count descending and limit
+    filtered_users.sort(key=lambda x: x.course_count, reverse=True)
+    
+    return filtered_users[:limit]
 
 
 def export_all_data(session):
@@ -222,9 +269,6 @@ def export_all_data(session):
         UserPII.designation,
         UserPII.occupation,
         func.count(func.distinct(Course.problem_statement)).label('courses_completed'),
-        func.count(func.distinct(
-            case((Course.valid == True, Course.problem_statement), else_=None)
-        )).label('courses_verified'),
         func.count(func.distinct(MasterClass.master_class_name)).label('masterclasses_attended')
     ).outerjoin(
         Course, UserPII.email == Course.email
@@ -281,12 +325,30 @@ def get_demographic_statistics(session):
     ).group_by(UserPII.city).order_by(func.count(UserPII.email).desc()).limit(10).all()
     
     # Occupation distribution
-    occupation_stats = session.query(
+    # Note: SCHOOL_STUDENT is consolidated with COLLEGE_STUDENT
+    occupation_stats_raw = session.query(
         UserPII.occupation,
         func.count(UserPII.email).label('count')
     ).filter(
         UserPII.occupation.isnot(None)
     ).group_by(UserPII.occupation).order_by(func.count(UserPII.email).desc()).limit(10).all()
+    
+    # Consolidate SCHOOL_STUDENT with COLLEGE_STUDENT
+    occupation_consolidated = {}
+    for occ in occupation_stats_raw:
+        # Normalize: treat SCHOOL_STUDENT as COLLEGE_STUDENT
+        normalized_occ = 'COLLEGE_STUDENT' if occ.occupation == 'SCHOOL_STUDENT' else occ.occupation
+        
+        if normalized_occ in occupation_consolidated:
+            occupation_consolidated[normalized_occ] += occ.count
+        else:
+            occupation_consolidated[normalized_occ] = occ.count
+    
+    # Convert to list format for return
+    occupation_stats = [
+        {'label': occ, 'count': count} 
+        for occ, count in sorted(occupation_consolidated.items(), key=lambda x: x[1], reverse=True)
+    ]
     
     # Academy 1.0 participation
     academy1_stats = session.query(
@@ -299,7 +361,7 @@ def get_demographic_statistics(session):
         'country': [{'label': c.country, 'count': c.count} for c in country_stats],
         'state': [{'label': s.state, 'count': s.count} for s in state_stats],
         'city': [{'label': c.city, 'count': c.count} for c in city_stats],
-        'occupation': [{'label': o.occupation, 'count': o.count} for o in occupation_stats],
+        'occupation': occupation_stats,
         'academy1': [{'label': 'Yes' if a.participated_in_academy_1 else 'No', 'count': a.count} for a in academy1_stats]
     }
 
@@ -312,7 +374,9 @@ def get_dashboard_statistics(session):
     
     # Total badges
     total_badges = session.query(func.count(Course.email)).scalar() or 0
-    verified_badges = session.query(func.count(Course.email)).filter(Course.valid == True).scalar() or 0
+    # Count truly valid badges (considering date requirement)
+    all_courses = session.query(Course).all()
+    verified_badges = sum(1 for c in all_courses if is_badge_valid(c))
     failed_badges = session.query(func.count(Course.email)).filter(Course.valid == False).scalar() or 0
     pending_badges = session.query(func.count(Course.email)).filter(Course.valid.is_(None)).scalar() or 0
     
@@ -332,25 +396,31 @@ def get_dashboard_statistics(session):
         SkillboostProfile.valid == True
     ).scalar() or 0
     
-    # Users with verified badges
-    users_with_verified_badges = session.query(func.count(func.distinct(Course.email))).filter(
-        Course.valid == True
-    ).scalar() or 0
+    # Users with verified badges (considering date requirement)
+    all_courses = session.query(Course).all()
+    users_with_valid_badges = set()
+    for c in all_courses:
+        if is_badge_valid(c):
+            users_with_valid_badges.add(c.email)
+    users_with_verified_badges = len(users_with_valid_badges)
     
-    # Top performers (users with most verified badges)
-    top_performers = session.query(
-        UserPII.name,
-        UserPII.email,
-        func.count(Course.problem_statement).label('badge_count')
-    ).join(
-        Course, UserPII.email == Course.email
-    ).filter(
-        Course.valid == True
-    ).group_by(
-        UserPII.name, UserPII.email
-    ).order_by(
-        func.count(Course.problem_statement).desc()
-    ).limit(10).all()
+    # Top performers (users with most verified badges, considering date requirement)
+    all_courses_with_users = session.query(Course, UserPII).join(
+        UserPII, Course.email == UserPII.email
+    ).all()
+    
+    # Count valid badges per user
+    user_badge_counts = {}
+    for course, user in all_courses_with_users:
+        if is_badge_valid(course):
+            if user.email not in user_badge_counts:
+                user_badge_counts[user.email] = {'name': user.name, 'email': user.email, 'count': 0}
+            user_badge_counts[user.email]['count'] += 1
+    
+    # Sort and get top 10
+    top_performers = sorted(user_badge_counts.values(), key=lambda x: x['count'], reverse=True)[:10]
+    # Convert to list of objects with badge_count attribute for compatibility
+    top_performers = [type('obj', (object,), {'name': p['name'], 'email': p['email'], 'badge_count': p['count']})() for p in top_performers]
     
     return {
         'users': {
@@ -398,9 +468,9 @@ def get_badge_statistics_breakdown(session):
     }
     
     # Get all badge submissions with user occupation
+    # Query full Course objects to access all attributes including completion_date
     all_badges = session.query(
-        Course.problem_statement,
-        Course.valid,
+        Course,
         UserPII.occupation
     ).outerjoin(
         UserPII, Course.email == UserPII.email
@@ -408,10 +478,10 @@ def get_badge_statistics_breakdown(session):
     
     # Parse and organize badges by track
     parsed_badges = []
-    for badge in all_badges:
+    for course_obj, occupation in all_badges:
         # Extract track and badge name from problem_statement
         # Format: "[Track] Badge Name" or just "Badge Name"
-        match = re.match(r'\[(.*?)\]\s*(.*)', badge.problem_statement.strip())
+        match = re.match(r'\[(.*?)\]\s*(.*)', course_obj.problem_statement.strip())
         if match:
             track_prefix = f"[{match.group(1)}]"
             badge_name = match.group(2).strip().rstrip(',').strip()
@@ -419,13 +489,16 @@ def get_badge_statistics_breakdown(session):
         else:
             # No prefix, try to infer or use "Other"
             track_display = 'Other Track'
-            badge_name = badge.problem_statement.strip().rstrip(',').strip()
+            badge_name = course_obj.problem_statement.strip().rstrip(',').strip()
+        
+        # Check if badge is truly valid (considering date requirement)
+        is_valid = is_badge_valid(course_obj)
         
         parsed_badges.append({
             'track': track_display,
             'badge_name': badge_name,
-            'valid': badge.valid,
-            'occupation': badge.occupation
+            'valid': is_valid,  # Use computed validity instead of raw valid flag
+            'occupation': occupation
         })
     
     # Organize data by tracks
@@ -463,12 +536,13 @@ def get_badge_statistics_breakdown(session):
             
             # Breakdown by occupation
             # Map database values to display labels
+            # Note: SCHOOL_STUDENT is treated as COLLEGE_STUDENT
             occupation_mapping = {
                 'COLLEGE_STUDENT': 'College Student',
+                'SCHOOL_STUDENT': 'College Student',  # Consolidated: school students are treated as college students
                 'PROFESSIONAL': 'Professional',
                 'STARTUP': 'Startup',
-                'FREELANCE': 'Freelance',
-                'SCHOOL_STUDENT': 'School Student'
+                'FREELANCE': 'Freelance'
             }
             
             breakdown = {}
@@ -504,13 +578,16 @@ def get_badge_statistics_breakdown(session):
         badge_data[track_name] = track_info
     
     # Get summary statistics
-    total_profiles = session.query(func.count(func.distinct(SkillboostProfile.email))).scalar() or 0
-    valid_profiles = session.query(func.count(func.distinct(SkillboostProfile.email))).filter(
+    # Count total profile records (not distinct emails) to match dashboard
+    total_profiles = session.query(func.count(SkillboostProfile.email)).scalar() or 0
+    valid_profiles = session.query(func.count(SkillboostProfile.email)).filter(
         SkillboostProfile.valid == True
     ).scalar() or 0
     
     total_badges = session.query(func.count(Course.email)).scalar() or 0
-    valid_badges = session.query(func.count(Course.email)).filter(Course.valid == True).scalar() or 0
+    # Count truly valid badges (considering date requirement)
+    all_courses = session.query(Course).all()
+    valid_badges = sum(1 for c in all_courses if is_badge_valid(c))
     invalid_badges = session.query(func.count(Course.email)).filter(Course.valid == False).scalar() or 0
     
     summary = {
@@ -601,8 +678,8 @@ def get_certificate_eligible_users(session, track_name):
             Course.problem_statement.in_(all_track_courses)
         ).all()
         
-        # Count valid courses
-        valid_courses = [c for c in user_courses if c.valid == True]
+        # Count valid courses (considering both valid flag and completion date)
+        valid_courses = [c for c in user_courses if is_badge_valid(c)]
         
         # Check if user has all required courses validated
         if len(valid_courses) < len(all_track_courses):
@@ -623,6 +700,9 @@ def get_certificate_eligible_users(session, track_name):
         # User is eligible! Get their PII data
         user = session.query(UserPII).filter_by(email=user_email).first()
         if user:
+            # Normalize occupation: Convert SCHOOL_STUDENT to COLLEGE_STUDENT
+            normalized_occupation = 'COLLEGE_STUDENT' if user.occupation == 'SCHOOL_STUDENT' else user.occupation
+            
             eligible_users.append({
                 'email': user.email,
                 'name': user.name,
@@ -631,7 +711,7 @@ def get_certificate_eligible_users(session, track_name):
                 'country': user.country,
                 'state': user.state,
                 'city': user.city,
-                'occupation': user.occupation,
+                'occupation': normalized_occupation,
                 'linkedin': user.linkedin,
                 'courses_completed': len(valid_courses),
                 'total_courses': len(all_track_courses),

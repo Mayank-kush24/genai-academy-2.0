@@ -185,6 +185,13 @@ class CSVImporter:
         # Normalize email
         row_dict['email'] = str(row_dict['email']).strip().lower()
         
+        # Normalize occupation: Convert SCHOOL_STUDENT to COLLEGE_STUDENT
+        if 'occupation' in row_dict and row_dict['occupation']:
+            occupation = str(row_dict['occupation']).strip().upper()
+            if occupation == 'SCHOOL_STUDENT':
+                row_dict['occupation'] = 'COLLEGE_STUDENT'
+                print(f"[DEBUG IMPORT] Normalized occupation: SCHOOL_STUDENT -> COLLEGE_STUDENT for {row_dict['email']}")
+        
         # Build filter for update keys
         filter_dict = {key: row_dict.get(key) for key in self.update_keys if key in row_dict}
         

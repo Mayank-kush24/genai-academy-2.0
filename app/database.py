@@ -51,6 +51,7 @@ class Course(Base):
     share_skill_badge_public_link = Column(Text)
     valid = Column(Boolean, default=None, nullable=True)
     remarks = Column(Text)
+    completion_date = Column(Date, nullable=True)  # Date when badge was earned
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
     

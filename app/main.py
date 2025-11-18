@@ -340,6 +340,7 @@ def export_users():
         data = export_all_data(session)
         
         # Convert to DataFrame
+        # Normalize occupation: Convert SCHOOL_STUDENT to COLLEGE_STUDENT
         df = pd.DataFrame([{
             'Email': row.email,
             'Name': row.name,
@@ -349,7 +350,7 @@ def export_users():
             'State': row.state,
             'City': row.city,
             'Designation': row.designation,
-            'Occupation': row.occupation,
+            'Occupation': 'COLLEGE_STUDENT' if row.occupation == 'SCHOOL_STUDENT' else row.occupation,
             'Courses Completed': row.courses_completed,
             'Courses Verified': row.courses_verified,
             'Masterclasses Attended': row.masterclasses_attended
@@ -809,6 +810,7 @@ def export_table_data(table_name):
     try:
         if table_name == 'user_pii':
             users = session.query(UserPII).all()
+            # Normalize occupation: Convert SCHOOL_STUDENT to COLLEGE_STUDENT
             df = pd.DataFrame([{
                 'Email': u.email,
                 'Name': u.name,
@@ -821,7 +823,7 @@ def export_table_data(table_name):
                 'Designation': u.designation,
                 'Class/Stream': u.class_stream,
                 'Degree/Passout Year': u.degree_passout_year,
-                'Occupation': u.occupation,
+                'Occupation': 'COLLEGE_STUDENT' if u.occupation == 'SCHOOL_STUDENT' else u.occupation,
                 'LinkedIn': u.linkedin,
                 'Participated in Academy 1.0': u.participated_in_academy_1,
                 'Created At': u.created_at,
