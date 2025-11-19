@@ -7,6 +7,7 @@ import os
 import time
 import random
 import re
+import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -223,57 +224,224 @@ class SkillboostVerifier:
         else:
             return False, f"Invalid Profile (Status Code: {response.status_code})"
     
+    def parse_date_string(self, date_str):
+        """
+        Parse a date string in various formats and return a date object.
+        Tries multiple date formats to handle different representations.
+        Returns (date_object, None) on success, (None, error_message) on failure.
+        """
+        if not date_str or not isinstance(date_str, str):
+            return None, "Invalid date string"
+        
+        date_str = date_str.strip()
+        
+        # List of date formats to try (in order of likelihood)
+        date_formats = [
+            # Full month name with comma: "August 31, 2025", "October 27, 2025"
+            '%B %d, %Y',  # Full month name
+            '%b %d, %Y',  # Abbreviated month name: "Aug 31, 2025", "Oct 27, 2025"
+            
+            # Full month name without comma: "27 October 2025", "31 August 2025"
+            '%d %B %Y',  # Day month year (full month)
+            '%d %b %Y',  # Day month year (abbreviated): "27 Oct 2025"
+            
+            # ISO format: "2025-10-27"
+            '%Y-%m-%d',
+            
+            # Dash-separated formats: "27-10-2025" (DD-MM-YYYY) or "10-27-2025" (MM-DD-YYYY)
+            '%d-%m-%Y',  # DD-MM-YYYY: "27-10-2025"
+            '%m-%d-%Y',  # MM-DD-YYYY: "10-27-2025"
+            
+            # Slash-separated formats: "27/10/2025" (DD/MM/YYYY) or "10/27/2025" (MM/DD/YYYY)
+            '%d/%m/%Y',  # DD/MM/YYYY: "27/10/2025"
+            '%m/%d/%Y',  # MM/DD/YYYY: "10/27/2025"
+            
+            # Year first with slashes: "2025/10/27"
+            '%Y/%m/%d',
+            
+            # Text formats with "of": "27th of October 2025", "27 of October 2025"
+            '%d of %B %Y',
+            '%dth of %B %Y',
+            '%dst of %B %Y',
+            '%dnd of %B %Y',
+            '%drd of %B %Y',
+        ]
+        
+        # Try each format
+        for fmt in date_formats:
+            try:
+                date_obj = datetime.strptime(date_str, fmt).date()
+                return date_obj, None
+            except ValueError:
+                continue
+        
+        return None, f"Could not parse date string: {date_str}"
+    
     def extract_completion_date(self, badge_url):
-        """Extract completion date from badge page (supports both Google Skills Boost and Credly)"""
+        """Extract completion date from badge page (supports both Google Skills Boost and Credly)
+        Uses multiple extraction methods similar to course name extraction"""
         response = self.make_request(badge_url)
         
         if response is None:
             return None, "Badge page not accessible"
         
+        # Debug: Check if we got a response
+        if response and response.status_code == 200:
+            # Only log first few to avoid spam
+            pass  # Will add detailed logging if needed
+        
         try:
             soup = BeautifulSoup(response.content, 'html.parser')
             parsed_url = urlparse(badge_url)
             
-            # Check if it's a Credly badge
-            if 'credly.com' in parsed_url.netloc:
-                # Credly-specific date extraction
-                # Look for date in various formats, including "Date issued:" prefix
-                date_patterns = [
-                    r'Date issued:\s*(\w+ \d{1,2}, \d{4})',  # "Date issued: August 31, 2025"
-                    r'(\w+ \d{1,2}, \d{4})',  # "Nov 14, 2025" or "August 31, 2025"
-                    r'(\d{1,2}/\d{1,2}/\d{4})',  # "11/14/2025"
-                    r'(\d{4}-\d{2}-\d{2})',  # "2025-11-14"
-                ]
+            # Comprehensive date patterns to search for in page text (matching reference file approach)
+            # These patterns match various date formats
+            date_patterns = [
+                # Credly-specific patterns with "Date issued:" prefix (like reference file)
+                r'Date issued:\s*(\w+ \d{1,2}, \d{4})',  # "Date issued: November 12, 2025"
+                r'Date issued:\s*(\d{1,2}/\d{1,2}/\d{4})',  # "Date issued: 11/12/2025"
+                r'Date issued:\s*(\d{4}-\d{2}-\d{2})',  # "Date issued: 2025-11-12"
                 
-                # Search in text content
-                page_text = soup.get_text()
-                for pattern in date_patterns:
-                    match = re.search(pattern, page_text, re.IGNORECASE)
-                    if match:
-                        date_str = match.group(1).strip()
-                        try:
-                            # Try parsing different date formats
-                            if ',' in date_str:
-                                # Try full month name first (e.g., "August 31, 2025")
-                                try:
-                                    date_obj = datetime.strptime(date_str, '%B %d, %Y').date()
-                                except ValueError:
-                                    # Try abbreviated month (e.g., "Aug 31, 2025")
-                                    try:
-                                        date_obj = datetime.strptime(date_str, '%b %d, %Y').date()
-                                    except ValueError:
-                                        continue
-                            elif '/' in date_str:
-                                # Format: "11/14/2025"
-                                date_obj = datetime.strptime(date_str, '%m/%d/%Y').date()
-                            else:
-                                # Format: "2025-11-14"
-                                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+                # General patterns (like reference file)
+                r'(\w+ \d{1,2}, \d{4})',  # "Aug 30, 2025", "November 12, 2025"
+                r'(\d{1,2}/\d{1,2}/\d{4})',  # "11/12/2025"
+                r'(\d{4}-\d{2}-\d{2})',  # "2025-10-27"
+                
+                # Additional patterns for other formats
+                r'Completed on:\s*([^\n\r<]+)',  # "Completed on: 27-10-2025"
+                r'Date completed:\s*([^\n\r<]+)',  # "Date completed: 27/10/2025"
+                r'Earned on:\s*([^\n\r<]+)',  # "Earned on: October 27, 2025"
+                
+                # Month name patterns without comma (day first)
+                r'(\d{1,2} \w+ \d{4})',  # "27 October 2025", "31 Aug 2025"
+                
+                # Dash-separated formats (could be DD-MM-YYYY or MM-DD-YYYY)
+                r'(\d{1,2}-\d{1,2}-\d{4})',  # "27-10-2025" or "10-27-2025"
+            ]
+            
+            # Get page text and raw HTML for searching
+            page_text = soup.get_text()
+            page_html = str(soup)  # Get raw HTML for regex matching (like reference file uses page_source)
+            
+            # Method 1: Look for specific known elements based on platform
+            # Skillboost: <span class="completed-at">Aug 30, 2025</span>
+            completed_at_elem = soup.find('span', class_='completed-at')
+            if completed_at_elem:
+                text = completed_at_elem.get_text().strip()
+                # Remove HTML comments and whitespace
+                text = re.sub(r'<!--.*?-->', '', text).strip()
+                if text:
+                    date_obj, error = self.parse_date_string(text)
+                    if date_obj:
+                        return date_obj, None
+            
+            # Skillboost: Look for ql-badge element with JSON data (like reference file)
+            # <ql-badge badge='{"completedAt":"Aug 30, 2025",...}'>
+            ql_badge_elem = soup.find('ql-badge')
+            if ql_badge_elem and ql_badge_elem.get('badge'):
+                try:
+                    badge_attr = ql_badge_elem.get('badge')
+                    # Replace HTML entities
+                    badge_attr = badge_attr.replace('&quot;', '"')
+                    badge_data = json.loads(badge_attr)
+                    if "completedAt" in badge_data:
+                        date_str = badge_data["completedAt"]
+                        date_obj, error = self.parse_date_string(date_str)
+                        if date_obj:
                             return date_obj, None
-                        except ValueError:
-                            continue
+                except (json.JSONDecodeError, AttributeError, KeyError):
+                    pass
+            
+            # Skillboost: Look for div with class containing 'date' inside public-profile-badge (like reference file)
+            public_badge_divs = soup.find_all('div', class_=re.compile(r'public-profile-badge', re.I))
+            for badge_div in public_badge_divs:
+                date_divs = badge_div.find_all('div', class_=re.compile(r'date', re.I))
+                for date_div in date_divs:
+                    text = date_div.get_text().strip()
+                    if text:
+                        date_obj, error = self.parse_date_string(text)
+                        if date_obj:
+                            return date_obj, None
+            
+            # Credly: Look for "Date issued:" in paragraph elements (exact match like reference file)
+            # <div class="badge-banner-issued-to-text"><p>Date issued: November 12, 2025</p></div>
+            badge_banner_divs = soup.find_all('div', class_=re.compile(r'badge-banner-issued-to-text', re.I))
+            for banner_div in badge_banner_divs:
+                p_elements = banner_div.find_all('p')
+                for p_elem in p_elements:
+                    p_text = p_elem.get_text()
+                    if 'Date issued:' in p_text:
+                        # Extract date after "Date issued:"
+                        date_str = p_text.split('Date issued:', 1)[1].strip()
+                        date_obj, error = self.parse_date_string(date_str)
+                        if date_obj:
+                            return date_obj, None
+            
+            # Credly: Alternative - look for div with text "Date issued:" and get following sibling
+            date_issued_divs = soup.find_all('div', string=re.compile(r'Date issued:', re.I))
+            for div in date_issued_divs:
+                # Try to find following sibling
+                next_sibling = div.find_next_sibling()
+                if next_sibling:
+                    text = next_sibling.get_text().strip()
+                    if text:
+                        date_obj, error = self.parse_date_string(text)
+                        if date_obj:
+                            return date_obj, None
+            
+            # Method 2: Look for time elements with datetime attribute
+            time_elements = soup.find_all('time')
+            for time_elem in time_elements:
+                # Try datetime attribute first
+                if time_elem.get('datetime'):
+                    try:
+                        date_obj = datetime.fromisoformat(time_elem['datetime'].replace('Z', '+00:00')).date()
+                        return date_obj, None
+                    except (ValueError, AttributeError):
+                        pass
                 
-                # Look for date in meta tags or structured data
+                # Try text content of time element
+                time_text = time_elem.get_text().strip()
+                if time_text:
+                    date_obj, error = self.parse_date_string(time_text)
+                    if date_obj:
+                        return date_obj, None
+            
+            # Method 3: Look for elements with date-related class names
+            date_class_pattern = re.compile(r'completed-at|date|issued|completed|earned', re.I)
+            for tag_name in ['span', 'div', 'p', 'td', 'li']:
+                date_elements = soup.find_all(tag_name, class_=date_class_pattern)
+                for elem in date_elements:
+                    text = elem.get_text().strip()
+                    # Remove HTML comments
+                    text = re.sub(r'<!--.*?-->', '', text).strip()
+                    if text and len(text) < 50:  # Reasonable date length
+                        date_obj, error = self.parse_date_string(text)
+                        if date_obj:
+                            return date_obj, None
+            
+            # Try each pattern in page HTML (like reference file uses page_source)
+            # Search in HTML first, then fallback to text
+            for search_content in [page_html, page_text]:
+                for pattern in date_patterns:
+                    matches = re.finditer(pattern, search_content, re.IGNORECASE)
+                    for match in matches:
+                        date_str = match.group(1).strip()
+                        # Clean up common suffixes/prefixes
+                        date_str = re.sub(r'^(Date issued|Completed on|Date completed|Earned on):\s*', '', date_str, flags=re.IGNORECASE)
+                        date_str = date_str.strip()
+                        
+                        # Skip if too long (likely not a date)
+                        if len(date_str) > 50:
+                            continue
+                        
+                        # Try to parse the date string
+                        date_obj, error = self.parse_date_string(date_str)
+                        if date_obj:
+                            return date_obj, None
+            
+            # Method 2: Look for date in meta tags or structured data (Credly)
+            if 'credly.com' in parsed_url.netloc:
                 meta_date = soup.find('meta', property='article:published_time')
                 if meta_date and meta_date.get('content'):
                     try:
@@ -281,54 +449,22 @@ class SkillboostVerifier:
                         return date_obj, None
                     except (ValueError, AttributeError):
                         pass
-            
-            else:
-                # Google Cloud Skills Boost date extraction
-                # Look for date patterns in the page, including formats like "Aug 30, 2025"
-                date_patterns = [
-                    r'(\w+ \d{1,2}, \d{4})',  # "Nov 14, 2025" or "August 31, 2025" or "Aug 30, 2025"
-                    r'(\d{1,2}/\d{1,2}/\d{4})',  # "11/14/2025"
-                    r'(\d{4}-\d{2}-\d{2})',  # "2025-11-14"
-                ]
                 
-                # Search in text content
-                page_text = soup.get_text()
-                for pattern in date_patterns:
-                    match = re.search(pattern, page_text, re.IGNORECASE)
-                    if match:
-                        date_str = match.group(1).strip()
-                        try:
-                            # Try parsing different date formats
-                            if ',' in date_str:
-                                # Try full month name first (e.g., "August 31, 2025")
-                                try:
-                                    date_obj = datetime.strptime(date_str, '%B %d, %Y').date()
-                                except ValueError:
-                                    # Try abbreviated month (e.g., "Aug 31, 2025")
-                                    try:
-                                        date_obj = datetime.strptime(date_str, '%b %d, %Y').date()
-                                    except ValueError:
-                                        continue
-                            elif '/' in date_str:
-                                # Format: "11/14/2025"
-                                date_obj = datetime.strptime(date_str, '%m/%d/%Y').date()
-                            else:
-                                # Format: "2025-11-14"
-                                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-                            return date_obj, None
-                        except ValueError:
-                            continue
-                
-                # Look for date in time elements or structured data
-                time_elem = soup.find('time')
-                if time_elem and time_elem.get('datetime'):
-                    try:
-                        date_obj = datetime.fromisoformat(time_elem['datetime'].replace('Z', '+00:00')).date()
+                # Look for date in data attributes
+                date_elem = soup.find(attrs={'data-date': True})
+                if date_elem:
+                    date_str = date_elem.get('data-date')
+                    date_obj, error = self.parse_date_string(date_str)
+                    if date_obj:
                         return date_obj, None
-                    except (ValueError, AttributeError):
-                        pass
             
-            return None, "Could not extract completion date from badge page"
+            # Method 3: Additional search in all text content for any missed dates
+            # (time elements and date-class elements already checked above)
+            
+            # Debug: If we reach here, no date was found
+            # Try to get a sample of page text to help debug
+            page_text_sample = page_text[:500] if 'page_text' in locals() else "N/A"
+            return None, f"Could not extract completion date from badge page (page sample: {page_text_sample[:100]}...)"
             
         except Exception as e:
             return None, f"Error parsing badge page for date: {str(e)}"
@@ -458,7 +594,7 @@ class SkillboostVerifier:
         if not course_name:
             return None, "Could not extract course information", None
         
-        # Extract completion date
+        # Extract completion date (always try to extract, even if course verification might fail)
         completion_date, date_error = self.extract_completion_date(badge_url)
         
         # Minimum required date: October 27, 2025
@@ -633,6 +769,19 @@ class SkillboostVerifier:
             
             valid, remarks, completion_date = self.verify_badge_url(badge_link, problem_statement)
             
+            # Debug: Log date extraction result (only for first few to avoid spam)
+            # Use a simple counter stored in the result dict to track across workers
+            debug_key = f"debug_{email}_{problem_statement}"
+            if not hasattr(self, '_debug_logged'):
+                self._debug_logged = set()
+            
+            if len(self._debug_logged) < 3 and debug_key not in self._debug_logged:
+                self._debug_logged.add(debug_key)
+                if completion_date:
+                    print(f"    [DEBUG] ✓ Date extracted: {completion_date} for {email[:30]}...")
+                else:
+                    print(f"    [DEBUG] ✗ No date extracted for {email[:30]}... (URL: {badge_link[:60]}...)")
+            
             # Additional date check if date was extracted but verification passed
             MIN_REQUIRED_DATE = datetime(2025, 10, 27).date()
             if valid is True and completion_date and completion_date < MIN_REQUIRED_DATE:
@@ -660,17 +809,17 @@ class SkillboostVerifier:
         
         Args:
             limit: Maximum number of badges to verify
-            force_reverify: If True, also reverify badges that are already verified but missing completion_date
+            force_reverify: If True, reverify ALL badges regardless of their current status (including date validation)
         """
         db_session = db_manager.get_session()
         
         try:
             # Get badges that need verification
             if force_reverify:
-                # Include badges that are verified but missing completion_date (need date extraction)
+                # Include ALL badges (verified, failed, or pending) for re-verification
+                # This will check both course match AND date requirement (>= 2025-10-27)
                 query = db_session.query(Course).filter(
-                    Course.share_skill_badge_public_link.isnot(None),
-                    Course.completion_date.is_(None)  # Missing completion date
+                    Course.share_skill_badge_public_link.isnot(None)
                 )
             else:
                 # Only get badges that are unverified (valid is NULL)
@@ -686,6 +835,8 @@ class SkillboostVerifier:
             
             print(f"\nVerifying {len(badges)} course badges using {self.max_workers} parallel workers...")
             print(f"Estimated time: ~{len(badges) // self.max_workers // 60} minutes")
+            if force_reverify:
+                print("Mode: Force re-verification - ALL badges will be reverified (including date validation >= 2025-10-27)")
             
             # Prepare badge data for parallel processing
             badge_data_list = []
@@ -717,9 +868,12 @@ class SkillboostVerifier:
                     ).first()
                     
                     if badge:
-                        # Always update completion_date if extracted
-                        if result.get('completion_date'):
+                        # Always update completion_date if extracted (even if verification is pending)
+                        if result.get('completion_date') is not None:
                             badge.completion_date = result['completion_date']
+                            print(f"    [DEBUG] Saving completion_date {result['completion_date']} for {result['email'][:20]}...")
+                        else:
+                            print(f"    [DEBUG] No completion_date to save for {result['email'][:20]}... (valid={result.get('valid')})")
                         
                         if result['valid'] is not None:
                             # Check date requirement even if verification passed
@@ -749,10 +903,12 @@ class SkillboostVerifier:
                                     status = f"✗ ({result['remarks'][:30]}...)"
                             badge.updated_at = datetime.utcnow()
                         else:
+                            # Verification pending, but still update date if extracted
                             badge.remarks = result['remarks']
                             with self.stats_lock:
                                 self.stats['badges_pending'] += 1
                             status = f"⚠ ({result['remarks'][:30]}...)"
+                            # Note: completion_date was already updated above if extracted
                         
                         # Print progress
                         if completed % 10 == 0:
@@ -793,7 +949,7 @@ def run_verification(profiles=True, badges=True, limit=None, max_workers=10, for
         badges: Verify badges
         limit: Limit number of records
         max_workers: Number of parallel workers
-        force_reverify: If True, reverify badges missing completion_date even if already verified
+        force_reverify: If True, reverify ALL badges regardless of status (including date validation)
     """
     verifier = SkillboostVerifier(max_workers=max_workers)
     
@@ -814,7 +970,7 @@ def main():
     parser.add_argument('--badges-only', action='store_true', help='Verify only badges')
     parser.add_argument('--limit', type=int, help='Limit number of records to verify')
     parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers (default: 10, recommended: 5-20)')
-    parser.add_argument('--force-reverify', action='store_true', help='Reverify badges missing completion_date even if already verified')
+    parser.add_argument('--force-reverify', action='store_true', help='Reverify ALL badges regardless of status (will validate date >= 2025-10-27)')
     
     args = parser.parse_args()
     
@@ -828,7 +984,7 @@ def main():
     print("Starting Skillboost Verification with Parallel Processing")
     print(f"Workers: {args.workers}")
     if args.force_reverify:
-        print("Mode: Force re-verification (will extract dates from already-verified badges)")
+        print("Mode: Force re-verification (will reverify ALL badges and validate date >= 2025-10-27)")
     print("="*60)
     
     profiles = not args.badges_only
