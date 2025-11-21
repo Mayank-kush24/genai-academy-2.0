@@ -11,10 +11,26 @@ import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
+import threading
 from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
+
+# Optional Selenium imports for Credly badge verification
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+    print("Warning: Selenium not available. Credly badge date extraction will use fallback method.")
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,10 +61,103 @@ class SkillboostVerifier:
         
         # Thread-safe lock for stats updates
         self.stats_lock = Lock()
+        
+        # Selenium WebDriver management (for Credly badges)
+        self.driver_lock = Lock()
+        self.selenium_drivers = {}
     
     def get_random_user_agent(self):
         """Get random user agent for request"""
         return random.choice(self.user_agents)
+    
+    def get_selenium_driver(self):
+        """Get or create a Selenium WebDriver instance for the current thread (for Credly badges)"""
+        if not SELENIUM_AVAILABLE:
+            return None
+        
+        thread_id = threading.get_ident()
+        with self.driver_lock:
+            if thread_id not in self.selenium_drivers:
+                options = Options()
+                options.add_argument("--headless")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--window-size=1920,1080")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-extensions")
+                options.add_argument("--disable-infobars")
+                options.add_argument("--disable-notifications")
+                options.add_argument("--blink-settings=imagesEnabled=false")
+                options.add_argument("--disable-features=NetworkService")
+                options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
+                options.add_argument("--disable-background-networking")
+                options.add_argument("--disable-sync")
+                options.add_argument("--disable-translate")
+                
+                try:
+                    # Try to get ChromeDriver path with validation
+                    driver_path = None
+                    try:
+                        driver_path = ChromeDriverManager().install()
+                        # Verify the driver file exists and is valid
+                        if os.path.exists(driver_path):
+                            file_size = os.path.getsize(driver_path)
+                            if file_size < 1000:  # Too small, likely corrupted
+                                # Try to clear cache and re-download
+                                cache_path = os.path.join(os.path.expanduser("~"), ".wdm")
+                                if os.path.exists(cache_path):
+                                    try:
+                                        import shutil
+                                        shutil.rmtree(cache_path)
+                                        driver_path = ChromeDriverManager().install()
+                                    except Exception:
+                                        pass  # Continue with original path
+                    except Exception:
+                        # ChromeDriverManager failed, will try system ChromeDriver
+                        driver_path = None
+                    
+                    # Initialize driver with explicit path or fallback to system
+                    if driver_path:
+                        driver = webdriver.Chrome(service=Service(driver_path), options=options)
+                    else:
+                        # Fallback to system ChromeDriver
+                        driver = webdriver.Chrome(options=options)
+                    
+                    driver.set_page_load_timeout(30)
+                    driver.set_script_timeout(30)
+                    self.selenium_drivers[thread_id] = driver
+                except WebDriverException as e:
+                    error_msg = str(e)
+                    # If ChromeDriverManager failed with WinError 193, try system ChromeDriver
+                    if "WinError 193" in error_msg or "not a valid Win32 application" in error_msg:
+                        try:
+                            # Try without explicit service (use system ChromeDriver)
+                            driver = webdriver.Chrome(options=options)
+                            driver.set_page_load_timeout(30)
+                            driver.set_script_timeout(30)
+                            self.selenium_drivers[thread_id] = driver
+                        except Exception as e2:
+                            print(f"Warning: Failed to initialize Selenium WebDriver (both methods failed): {str(e2)[:200]}")
+                            return None
+                    else:
+                        print(f"Warning: Failed to initialize Selenium WebDriver: {error_msg[:200]}")
+                        return None
+                except Exception as e:
+                    print(f"Warning: Unexpected error initializing Selenium WebDriver: {str(e)[:200]}")
+                    return None
+        return self.selenium_drivers.get(thread_id)
+    
+    def close_selenium_drivers(self):
+        """Close all Selenium WebDrivers"""
+        with self.driver_lock:
+            for thread_id, driver in list(self.selenium_drivers.items()):
+                try:
+                    driver.quit()
+                except Exception as e:
+                    print(f"Warning: Error closing WebDriver: {str(e)}")
+                finally:
+                    self.selenium_drivers.pop(thread_id, None)
+            self.selenium_drivers.clear()
     
     def make_request(self, url, retries=None):
         """Make HTTP request with retry logic"""
@@ -277,31 +386,310 @@ class SkillboostVerifier:
         
         return None, f"Could not parse date string: {date_str}"
     
+    def extract_credly_date_selenium(self, badge_url, retries=2):
+        """Extract completion date from Credly badge using Selenium (exact match from reference file)"""
+        if not SELENIUM_AVAILABLE:
+            return None, "Selenium not available for Credly date extraction"
+        
+        for attempt in range(retries + 1):
+            try:
+                driver = self.get_selenium_driver()
+                if driver is None:
+                    return None, "Failed to initialize Selenium WebDriver"
+                
+                driver.get(badge_url)
+                
+                wait = WebDriverWait(driver, 20)  # Increased timeout
+                # Wait for badge element to ensure page is fully loaded (like reference file)
+                try:
+                    badge_element = wait.until(EC.presence_of_element_located(
+                        (By.XPATH, '//h1[contains(@class, "ac-heading--badge-name-hero")]')
+                    ))
+                    # Wait a bit more for dynamic content to load
+                    time.sleep(1)
+                    # Scroll to badge element to ensure it's in view
+                    driver.execute_script("arguments[0].scrollIntoView(true);", badge_element)
+                    time.sleep(0.5)
+                except TimeoutException:
+                    # If badge name element not found, try waiting for body and add delay
+                    wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+                    # Wait for page to be ready
+                    driver.execute_script("return document.readyState") == "complete"
+                    time.sleep(3)  # Give JavaScript more time to render
+                
+                issue_date = ""
+                
+                # Method 1: Exact match from reference file
+                # XPath: '//div[contains(@class, "badge-banner-issued-to-text")]/p[contains(text(), "Date issued:")]'
+                try:
+                    date_element = wait.until(EC.presence_of_element_located(
+                        (By.XPATH, '//div[contains(@class, "badge-banner-issued-to-text")]/p[contains(text(), "Date issued:")]')
+                    ))
+                    if date_element:
+                        # Scroll to element to ensure it's visible
+                        driver.execute_script("arguments[0].scrollIntoView(true);", date_element)
+                        time.sleep(0.3)
+                        issue_date = date_element.text.replace("Date issued:", "").strip()
+                        print(f"    [DEBUG CREDLY SELENIUM] Method 1 found date: {issue_date}")
+                except (NoSuchElementException, TimeoutException) as e:
+                    print(f"    [DEBUG CREDLY SELENIUM] Method 1 failed: {str(e)[:100]}")
+                
+                # Method 1b: Try alternative XPath with different class variations
+                if not issue_date:
+                    try:
+                        # Try with different class name variations
+                        xpaths = [
+                            '//p[contains(text(), "Date issued:")]',
+                            '//div[contains(@class, "badge")]//p[contains(text(), "Date issued:")]',
+                            '//div[contains(@class, "issued")]//p[contains(text(), "Date issued:")]',
+                            '//*[contains(text(), "Date issued:")]'
+                        ]
+                        for xpath in xpaths:
+                            try:
+                                date_element = driver.find_element(By.XPATH, xpath)
+                                if date_element:
+                                    issue_date = date_element.text.replace("Date issued:", "").strip()
+                                    if issue_date:
+                                        print(f"    [DEBUG CREDLY SELENIUM] Method 1b (xpath: {xpath[:50]}) found date: {issue_date}")
+                                        break
+                            except NoSuchElementException:
+                                continue
+                    except Exception as e:
+                        print(f"    [DEBUG CREDLY SELENIUM] Method 1b failed: {str(e)[:100]}")
+                
+                # Method 2: Following sibling approach (from reference file)
+                if not issue_date:
+                    try:
+                        issue_date_element = driver.find_element(By.XPATH, '//div[text()="Date issued:"]/following-sibling::div[1]')
+                        issue_date = issue_date_element.text.strip()
+                        print(f"    [DEBUG CREDLY SELENIUM] Method 2 found date: {issue_date}")
+                    except NoSuchElementException:
+                        print(f"    [DEBUG CREDLY SELENIUM] Method 2 failed")
+                
+                # Method 3: Regex on page_source (exact match from reference file)
+                if not issue_date:
+                    page_source = driver.page_source
+                    # Debug: Check if "Date issued" text exists in page source
+                    if "Date issued" in page_source:
+                        print(f"    [DEBUG CREDLY SELENIUM] 'Date issued' found in page source, trying regex patterns")
+                        # Try to find a sample of HTML around "Date issued"
+                        sample_match = re.search(r'.{0,200}Date issued.{0,200}', page_source)
+                        if sample_match:
+                            print(f"    [DEBUG CREDLY SELENIUM] Sample HTML: {sample_match.group()[:200]}")
+                    else:
+                        print(f"    [DEBUG CREDLY SELENIUM] 'Date issued' NOT found in page source")
+                        # Try to find what date-related text IS in the page
+                        date_related = re.search(r'.{0,300}(date|issued|completed).{0,300}', page_source, re.IGNORECASE)
+                        if date_related:
+                            print(f"    [DEBUG CREDLY SELENIUM] Found date-related text: {date_related.group()[:300]}")
+                    
+                    date_patterns = [
+                        r"Date issued:\s*(\w+ \d{1,2}, \d{4})",
+                        r"Date issued:\s*(\d{1,2}/\d{1,2}/\d{4})",
+                        r"Date issued:\s*(\d{4}-\d{2}-\d{2})"
+                    ]
+                    for pattern in date_patterns:
+                        matches = re.findall(pattern, page_source)
+                        if matches:
+                            issue_date = matches[0]
+                            print(f"    [DEBUG CREDLY SELENIUM] Method 3 (regex) found date: {issue_date}")
+                            break
+                
+                if issue_date:
+                    # Parse the date string
+                    date_obj, error = self.parse_date_string(issue_date)
+                    if date_obj:
+                        print(f"    [DEBUG CREDLY SELENIUM] Successfully parsed date: {date_obj}")
+                        return date_obj, None
+                    else:
+                        print(f"    [DEBUG CREDLY SELENIUM] Failed to parse date string: {issue_date}, error: {error}")
+                        return None, f"Could not parse extracted date: {issue_date}"
+                else:
+                    print(f"    [DEBUG CREDLY SELENIUM] All methods failed for {badge_url[:60]}...")
+                    return None, "Could not extract date from Credly badge page"
+                    
+            except (TimeoutException, WebDriverException) as e:
+                print(f"    [DEBUG CREDLY SELENIUM] Attempt {attempt + 1} failed: {str(e)[:100]}")
+                if attempt < retries:
+                    time.sleep(random.uniform(1, 3))  # Delay before retry
+                    continue
+                else:
+                    return None, f"Selenium error after {retries + 1} attempts: {str(e)}"
+            except Exception as e:
+                print(f"    [DEBUG CREDLY SELENIUM] Unexpected error: {str(e)[:100]}")
+                return None, f"Unexpected error in Selenium extraction: {str(e)}"
+        
+        return None, "Failed to extract date after all retries"
+    
     def extract_completion_date(self, badge_url):
         """Extract completion date from badge page (supports both Google Skills Boost and Credly)
-        Uses multiple extraction methods similar to course name extraction"""
+        Uses Selenium for Credly badges (like reference file), requests for Google Skills Boost"""
+        parsed_url = urlparse(badge_url)
+        is_credly = 'credly.com' in parsed_url.netloc
+        
+        # For Credly badges, use Selenium (exact match from reference file)
+        if is_credly:
+            if SELENIUM_AVAILABLE:
+                date_obj, error = self.extract_credly_date_selenium(badge_url)
+                if date_obj:
+                    return date_obj, None
+                # If Selenium fails, fall back to requests method below
+                # (error will be logged but we'll try requests as backup)
+            # If Selenium not available or failed, continue to requests method below
+        
+        # For Google Skills Boost (or Credly fallback), use requests method
         response = self.make_request(badge_url)
         
         if response is None:
             return None, "Badge page not accessible"
         
-        # Debug: Check if we got a response
-        if response and response.status_code == 200:
-            # Only log first few to avoid spam
-            pass  # Will add detailed logging if needed
-        
         try:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            parsed_url = urlparse(badge_url)
+            # Ensure proper encoding (like reference file's driver.page_source)
+            response.encoding = response.apparent_encoding if response.apparent_encoding else 'utf-8'
             
-            # Comprehensive date patterns to search for in page text (matching reference file approach)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Get page text and raw HTML for searching (like reference file uses page_source)
+            page_text = soup.get_text()
+            page_html = response.text  # Use raw response text (like reference file's page_source)
+            
+            # CREDLY FALLBACK EXTRACTION (only if Selenium failed or unavailable)
+            # This is a fallback - Selenium should be used first for Credly badges
+            if is_credly:
+                # Only use requests method if Selenium wasn't available or failed
+                # Try the same extraction methods as fallback
+                # Method 1: Try to find the p element with XPath equivalent (like reference file)
+                # Reference uses: '//div[contains(@class, "badge-banner-issued-to-text")]/p[contains(text(), "Date issued:")]'
+                # In BeautifulSoup, this translates to finding div with class, then p with text
+                badge_banner_divs = soup.find_all('div', class_=re.compile(r'badge-banner-issued-to-text', re.I))
+                for banner_div in badge_banner_divs:
+                    p_elements = banner_div.find_all('p')
+                    for p_elem in p_elements:
+                        # Get text without stripping first (to match reference behavior)
+                        p_text = p_elem.get_text()
+                        # Also try with string attribute (exact text content)
+                        p_string = p_elem.string if p_elem.string else p_text
+                        
+                        # Check if p element contains "Date issued:" (like reference: contains(text(), "Date issued:"))
+                        # Try both the full text and the string attribute
+                        for text_to_check in [p_text, p_string]:
+                            if text_to_check and 'Date issued:' in text_to_check:
+                                # Extract date exactly like reference: text.replace("Date issued:", "").strip()
+                                issue_date = text_to_check.replace("Date issued:", "").strip()
+                                if issue_date:
+                                    date_obj, error = self.parse_date_string(issue_date)
+                                    if date_obj:
+                                        return date_obj, None
+                
+                # Method 2: Try following sibling approach (like reference file)
+                # Reference uses: '//div[text()="Date issued:"]/following-sibling::div[1]'
+                date_issued_divs = soup.find_all('div', string=re.compile(r'Date issued:', re.I))
+                for div in date_issued_divs:
+                    next_sibling = div.find_next_sibling()
+                    if next_sibling:
+                        issue_date = next_sibling.get_text().strip()
+                        if issue_date:
+                            date_obj, error = self.parse_date_string(issue_date)
+                            if date_obj:
+                                return date_obj, None
+                
+                # Method 3: Use regex on page_source (exact match from reference file)
+                # Reference uses: driver.page_source with these exact patterns
+                date_patterns = [
+                    r"Date issued:\s*(\w+ \d{1,2}, \d{4})",  # Exact pattern from reference: "Date issued: September 17, 2024"
+                    r"Date issued:\s*(\d{1,2}/\d{1,2}/\d{4})",  # Exact pattern from reference
+                    r"Date issued:\s*(\d{4}-\d{2}-\d{2})"  # Exact pattern from reference
+                ]
+                
+                # Decode HTML entities in page_html (in case of &nbsp; or other entities)
+                try:
+                    from html import unescape
+                    page_html_decoded = unescape(page_html)
+                except:
+                    page_html_decoded = page_html
+                
+                # Use page_html (equivalent to driver.page_source) - try both original and decoded
+                for html_content in [page_html, page_html_decoded]:
+                    for pattern in date_patterns:
+                        matches = re.findall(pattern, html_content)  # No flags, exactly like reference
+                        if matches:
+                            issue_date = matches[0]  # Take first match, exactly like reference
+                            date_obj, error = self.parse_date_string(issue_date)
+                            if date_obj:
+                                return date_obj, None
+                
+                # Also try on page_text as fallback
+                for pattern in date_patterns:
+                    matches = re.findall(pattern, page_text)
+                    if matches:
+                        issue_date = matches[0]
+                        date_obj, error = self.parse_date_string(issue_date)
+                        if date_obj:
+                            return date_obj, None
+                
+                
+                # Method 4: Look for date in meta tags or structured data (Credly)
+                meta_date = soup.find('meta', property='article:published_time')
+                if meta_date and meta_date.get('content'):
+                    try:
+                        date_obj = datetime.fromisoformat(meta_date['content'].replace('Z', '+00:00')).date()
+                        return date_obj, None
+                    except (ValueError, AttributeError):
+                        pass
+                
+                # Look for date in data attributes
+                date_elem = soup.find(attrs={'data-date': True})
+                if date_elem:
+                    date_str = date_elem.get('data-date')
+                    date_obj, error = self.parse_date_string(date_str)
+                    if date_obj:
+                        return date_obj, None
+            
+            # GOOGLE SKILLS BOOST EXTRACTION
+            if not is_credly:
+                # Method 1: Look for specific known elements
+                # Skillboost: <span class="completed-at">Aug 30, 2025</span>
+                completed_at_elem = soup.find('span', class_='completed-at')
+                if completed_at_elem:
+                    text = completed_at_elem.get_text().strip()
+                    # Remove HTML comments and whitespace
+                    text = re.sub(r'<!--.*?-->', '', text).strip()
+                    if text:
+                        date_obj, error = self.parse_date_string(text)
+                        if date_obj:
+                            return date_obj, None
+                
+                # Skillboost: Look for ql-badge element with JSON data (like reference file)
+                # <ql-badge badge='{"completedAt":"Aug 30, 2025",...}'>
+                ql_badge_elem = soup.find('ql-badge')
+                if ql_badge_elem and ql_badge_elem.get('badge'):
+                    try:
+                        badge_attr = ql_badge_elem.get('badge')
+                        # Replace HTML entities
+                        badge_attr = badge_attr.replace('&quot;', '"')
+                        badge_data = json.loads(badge_attr)
+                        if "completedAt" in badge_data:
+                            date_str = badge_data["completedAt"]
+                            date_obj, error = self.parse_date_string(date_str)
+                            if date_obj:
+                                return date_obj, None
+                    except (json.JSONDecodeError, AttributeError, KeyError):
+                        pass
+                
+                # Skillboost: Look for div with class containing 'date' inside public-profile-badge (like reference file)
+                public_badge_divs = soup.find_all('div', class_=re.compile(r'public-profile-badge', re.I))
+                for badge_div in public_badge_divs:
+                    date_divs = badge_div.find_all('div', class_=re.compile(r'date', re.I))
+                    for date_div in date_divs:
+                        text = date_div.get_text().strip()
+                        if text:
+                            date_obj, error = self.parse_date_string(text)
+                            if date_obj:
+                                return date_obj, None
+            
+            # Comprehensive date patterns to search for in page text (general fallback)
             # These patterns match various date formats
             date_patterns = [
-                # Credly-specific patterns with "Date issued:" prefix (like reference file)
-                r'Date issued:\s*(\w+ \d{1,2}, \d{4})',  # "Date issued: November 12, 2025"
-                r'Date issued:\s*(\d{1,2}/\d{1,2}/\d{4})',  # "Date issued: 11/12/2025"
-                r'Date issued:\s*(\d{4}-\d{2}-\d{2})',  # "Date issued: 2025-11-12"
-                
                 # General patterns (like reference file)
                 r'(\w+ \d{1,2}, \d{4})',  # "Aug 30, 2025", "November 12, 2025"
                 r'(\d{1,2}/\d{1,2}/\d{4})',  # "11/12/2025"
@@ -318,76 +706,6 @@ class SkillboostVerifier:
                 # Dash-separated formats (could be DD-MM-YYYY or MM-DD-YYYY)
                 r'(\d{1,2}-\d{1,2}-\d{4})',  # "27-10-2025" or "10-27-2025"
             ]
-            
-            # Get page text and raw HTML for searching
-            page_text = soup.get_text()
-            page_html = str(soup)  # Get raw HTML for regex matching (like reference file uses page_source)
-            
-            # Method 1: Look for specific known elements based on platform
-            # Skillboost: <span class="completed-at">Aug 30, 2025</span>
-            completed_at_elem = soup.find('span', class_='completed-at')
-            if completed_at_elem:
-                text = completed_at_elem.get_text().strip()
-                # Remove HTML comments and whitespace
-                text = re.sub(r'<!--.*?-->', '', text).strip()
-                if text:
-                    date_obj, error = self.parse_date_string(text)
-                    if date_obj:
-                        return date_obj, None
-            
-            # Skillboost: Look for ql-badge element with JSON data (like reference file)
-            # <ql-badge badge='{"completedAt":"Aug 30, 2025",...}'>
-            ql_badge_elem = soup.find('ql-badge')
-            if ql_badge_elem and ql_badge_elem.get('badge'):
-                try:
-                    badge_attr = ql_badge_elem.get('badge')
-                    # Replace HTML entities
-                    badge_attr = badge_attr.replace('&quot;', '"')
-                    badge_data = json.loads(badge_attr)
-                    if "completedAt" in badge_data:
-                        date_str = badge_data["completedAt"]
-                        date_obj, error = self.parse_date_string(date_str)
-                        if date_obj:
-                            return date_obj, None
-                except (json.JSONDecodeError, AttributeError, KeyError):
-                    pass
-            
-            # Skillboost: Look for div with class containing 'date' inside public-profile-badge (like reference file)
-            public_badge_divs = soup.find_all('div', class_=re.compile(r'public-profile-badge', re.I))
-            for badge_div in public_badge_divs:
-                date_divs = badge_div.find_all('div', class_=re.compile(r'date', re.I))
-                for date_div in date_divs:
-                    text = date_div.get_text().strip()
-                    if text:
-                        date_obj, error = self.parse_date_string(text)
-                        if date_obj:
-                            return date_obj, None
-            
-            # Credly: Look for "Date issued:" in paragraph elements (exact match like reference file)
-            # <div class="badge-banner-issued-to-text"><p>Date issued: November 12, 2025</p></div>
-            badge_banner_divs = soup.find_all('div', class_=re.compile(r'badge-banner-issued-to-text', re.I))
-            for banner_div in badge_banner_divs:
-                p_elements = banner_div.find_all('p')
-                for p_elem in p_elements:
-                    p_text = p_elem.get_text()
-                    if 'Date issued:' in p_text:
-                        # Extract date after "Date issued:"
-                        date_str = p_text.split('Date issued:', 1)[1].strip()
-                        date_obj, error = self.parse_date_string(date_str)
-                        if date_obj:
-                            return date_obj, None
-            
-            # Credly: Alternative - look for div with text "Date issued:" and get following sibling
-            date_issued_divs = soup.find_all('div', string=re.compile(r'Date issued:', re.I))
-            for div in date_issued_divs:
-                # Try to find following sibling
-                next_sibling = div.find_next_sibling()
-                if next_sibling:
-                    text = next_sibling.get_text().strip()
-                    if text:
-                        date_obj, error = self.parse_date_string(text)
-                        if date_obj:
-                            return date_obj, None
             
             # Method 2: Look for time elements with datetime attribute
             time_elements = soup.find_all('time')
@@ -440,31 +758,40 @@ class SkillboostVerifier:
                         if date_obj:
                             return date_obj, None
             
-            # Method 2: Look for date in meta tags or structured data (Credly)
-            if 'credly.com' in parsed_url.netloc:
-                meta_date = soup.find('meta', property='article:published_time')
-                if meta_date and meta_date.get('content'):
-                    try:
-                        date_obj = datetime.fromisoformat(meta_date['content'].replace('Z', '+00:00')).date()
-                        return date_obj, None
-                    except (ValueError, AttributeError):
-                        pass
-                
-                # Look for date in data attributes
-                date_elem = soup.find(attrs={'data-date': True})
-                if date_elem:
-                    date_str = date_elem.get('data-date')
-                    date_obj, error = self.parse_date_string(date_str)
-                    if date_obj:
-                        return date_obj, None
-            
-            # Method 3: Additional search in all text content for any missed dates
-            # (time elements and date-class elements already checked above)
+            # Additional search in all text content for any missed dates
+            # (platform-specific and time elements already checked above)
             
             # Debug: If we reach here, no date was found
-            # Try to get a sample of page text to help debug
-            page_text_sample = page_text[:500] if 'page_text' in locals() else "N/A"
-            return None, f"Could not extract completion date from badge page (page sample: {page_text_sample[:100]}...)"
+            # For Credly badges, provide more detailed debugging info
+            if is_credly:
+                # Check if "Date issued" text exists in the page at all
+                has_date_issued = 'Date issued' in page_html or 'Date issued' in page_text
+                # Try to find a sample around "Date issued" if it exists
+                debug_sample = ""
+                if has_date_issued:
+                    # Find position of "Date issued" and get surrounding text (more context)
+                    match = re.search(r'Date\s+issued[^<]{0,100}', page_html, re.IGNORECASE)
+                    if match:
+                        debug_sample = match.group(0)
+                    else:
+                        match = re.search(r'Date\s+issued[^\n]{0,100}', page_text, re.IGNORECASE)
+                        if match:
+                            debug_sample = match.group(0)
+                    
+                    # Also try to find the badge-banner-issued-to-text div content
+                    badge_div = soup.find('div', class_=re.compile(r'badge-banner-issued-to-text', re.I))
+                    if badge_div:
+                        div_text = badge_div.get_text()
+                        debug_sample += f" | Div text: {div_text[:200]}"
+                
+                if has_date_issued:
+                    return None, f"Could not extract completion date from Credly badge (found 'Date issued' but couldn't parse date. Sample: {debug_sample[:200]})"
+                else:
+                    return None, f"Could not extract completion date from Credly badge (no 'Date issued' text found in page. Page length: {len(page_html)} chars)"
+            else:
+                # For Google badges, use simpler message
+                page_text_sample = page_text[:500] if 'page_text' in locals() else "N/A"
+                return None, f"Could not extract completion date from badge page (page sample: {page_text_sample[:100]}...)"
             
         except Exception as e:
             return None, f"Error parsing badge page for date: {str(e)}"
@@ -482,7 +809,28 @@ class SkillboostVerifier:
             
             # Check if it's a Credly badge
             if 'credly.com' in parsed_url.netloc:
-                # Credly-specific extraction methods
+                # Try Selenium first for Credly (more reliable for dynamic content)
+                if SELENIUM_AVAILABLE:
+                    try:
+                        driver = self.get_selenium_driver()
+                        if driver:
+                            driver.get(badge_url)
+                            wait = WebDriverWait(driver, 15)
+                            # Wait for badge name element (same as date extraction)
+                            try:
+                                badge_element = wait.until(EC.presence_of_element_located(
+                                    (By.XPATH, '//h1[contains(@class, "ac-heading--badge-name-hero")]')
+                                ))
+                                badge_name = badge_element.text.strip()
+                                if badge_name:
+                                    return badge_name, None
+                            except (TimeoutException, NoSuchElementException):
+                                pass
+                    except Exception as e:
+                        # Fall back to requests method if Selenium fails
+                        pass
+                
+                # Credly-specific extraction methods (fallback to requests/BeautifulSoup)
                 
                 # Method 1: Look for badge name/title (most common)
                 badge_name = soup.find('h1', class_='badge-name')
@@ -551,6 +899,108 @@ class SkillboostVerifier:
         except Exception as e:
             return None, f"Error parsing badge page: {str(e)}"
     
+    def normalize_course_name(self, course_name, is_credly=False):
+        """Normalize course name for better matching by removing prefixes, suffixes, and extra text"""
+        if not course_name:
+            return ""
+        
+        # Convert to lowercase and strip
+        normalized = course_name.lower().strip()
+        
+        # Remove trailing commas, periods, and extra whitespace
+        normalized = re.sub(r'[,\.]+$', '', normalized).strip()
+        
+        # Remove content in square brackets like [Dev Ops], [Track Name], etc.
+        normalized = re.sub(r'\[.*?\]', '', normalized).strip()
+        
+        # Remove content in parentheses (but keep it for now, might be useful)
+        # normalized = re.sub(r'\(.*?\)', '', normalized).strip()
+        
+        # For Credly badges, remove common suffixes
+        if is_credly:
+            # Remove patterns like "Skill Badge was issued by..." or "was issued by..."
+            normalized = re.sub(r'\s*skill\s*badge\s*was\s*issued\s*by.*$', '', normalized, flags=re.IGNORECASE).strip()
+            normalized = re.sub(r'\s*was\s*issued\s*by.*$', '', normalized, flags=re.IGNORECASE).strip()
+            # Remove "to [Name]" patterns
+            normalized = re.sub(r'\s+to\s+[A-Z\s]+\.?\s*$', '', normalized, flags=re.IGNORECASE).strip()
+        
+        # Remove extra whitespace
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return normalized
+    
+    def extract_core_course_name(self, course_name):
+        """Extract the core course name by removing prefixes and suffixes"""
+        if not course_name:
+            return ""
+        
+        # Remove common prefixes
+        prefixes = [
+            r'^\[.*?\]\s*',  # [Track Name] prefix
+            r'^track\s*:\s*',  # Track: prefix
+        ]
+        for prefix in prefixes:
+            course_name = re.sub(prefix, '', course_name, flags=re.IGNORECASE).strip()
+        
+        return course_name.strip()
+    
+    def match_course_names(self, found_name, expected_name, is_credly=False):
+        """Improved course name matching that handles prefixes, suffixes, and extra text"""
+        # Normalize both names
+        found_normalized = self.normalize_course_name(found_name, is_credly=is_credly)
+        expected_normalized = self.normalize_course_name(expected_name, is_credly=False)
+        
+        # Extract core course names (remove prefixes)
+        found_core = self.extract_core_course_name(found_normalized)
+        expected_core = self.extract_core_course_name(expected_normalized)
+        
+        # Direct match on normalized names
+        if found_normalized == expected_normalized:
+            return True, "exact match"
+        
+        # Direct match on core names
+        if found_core == expected_core and found_core:
+            return True, "core name match"
+        
+        # Contains match (either direction)
+        if expected_normalized in found_normalized or found_normalized in expected_normalized:
+            return True, "contains match"
+        
+        # Check if core names appear in the full normalized names
+        if expected_core and expected_core in found_normalized:
+            return True, "expected core in found name"
+        if found_core and found_core in expected_normalized:
+            return True, "found core in expected name"
+        
+        # Word-based matching - split into words and remove empty strings and very short words
+        def get_meaningful_words(text):
+            words = [w for w in text.split() if len(w) > 2]  # Ignore words <= 2 chars
+            return set(words)
+        
+        found_words = get_meaningful_words(found_normalized)
+        expected_words = get_meaningful_words(expected_normalized)
+        
+        if len(expected_words) == 0:
+            return False, "no meaningful words in expected name"
+        
+        # Calculate match ratio based on meaningful words
+        common_words = found_words & expected_words
+        match_ratio = len(common_words) / len(expected_words) if expected_words else 0
+        
+        # Also try with core names
+        found_core_words = get_meaningful_words(found_core)
+        expected_core_words = get_meaningful_words(expected_core)
+        if expected_core_words:
+            core_common_words = found_core_words & expected_core_words
+            core_match_ratio = len(core_common_words) / len(expected_core_words)
+            match_ratio = max(match_ratio, core_match_ratio)
+        
+        # Require at least 60% of meaningful words to match
+        if match_ratio >= 0.6:
+            return True, f"word match ({int(match_ratio * 100)}%)"
+        
+        return False, f"insufficient match ({int(match_ratio * 100)}%)"
+    
     def verify_badge_url(self, badge_url, expected_course):
         """Verify badge URL and match with expected course (supports Google Skills Boost and Credly)
         Also checks completion date >= 2025-10-27"""
@@ -614,27 +1064,11 @@ class SkillboostVerifier:
         # Determine badge platform for better reporting
         platform = "Credly" if is_credly_badge else "Google Skills Boost"
         
-        # Fuzzy match with expected course
-        # Normalize both strings for comparison
-        course_normalized = course_name.lower().strip()
-        expected_normalized = expected_course.lower().strip()
+        # Improved fuzzy match with expected course
+        is_match, match_type = self.match_course_names(course_name, expected_course, is_credly=is_credly_badge)
         
-        # Direct match
-        if course_normalized == expected_normalized:
-            return True, f"Course verified ({platform} - exact match)", completion_date
-        
-        # Contains match
-        if expected_normalized in course_normalized or course_normalized in expected_normalized:
-            return True, f"Course verified ({platform} - matched: {course_name})", completion_date
-        
-        # Partial word match (at least 60% of words match)
-        course_words = set(course_normalized.split())
-        expected_words = set(expected_normalized.split())
-        
-        if len(expected_words) > 0:
-            match_ratio = len(course_words & expected_words) / len(expected_words)
-            if match_ratio >= 0.6:
-                return True, f"Course verified ({platform} - partial match: {course_name})", completion_date
+        if is_match:
+            return True, f"Course verified ({platform} - {match_type})", completion_date
         
         return False, f"Course mismatch ({platform}). Expected: '{expected_course}', Found: '{course_name}'", completion_date
     
@@ -767,15 +1201,26 @@ class SkillboostVerifier:
                     'completion_date': None
                 }
             
+            # Check if it's a Credly badge for special debugging
+            from urllib.parse import urlparse
+            parsed_url = urlparse(badge_link)
+            is_credly = 'credly.com' in parsed_url.netloc if parsed_url.netloc else False
+            
             valid, remarks, completion_date = self.verify_badge_url(badge_link, problem_statement)
             
-            # Debug: Log date extraction result (only for first few to avoid spam)
+            # Debug: Log date extraction result (more verbose for Credly badges)
             # Use a simple counter stored in the result dict to track across workers
             debug_key = f"debug_{email}_{problem_statement}"
             if not hasattr(self, '_debug_logged'):
                 self._debug_logged = set()
             
-            if len(self._debug_logged) < 3 and debug_key not in self._debug_logged:
+            # Always log Credly badges (to debug date extraction issues)
+            if is_credly:
+                if completion_date:
+                    print(f"    [DEBUG CREDLY] ✓ Date extracted: {completion_date} for {email[:30]}...")
+                else:
+                    print(f"    [DEBUG CREDLY] ✗ No date extracted for {email[:30]}... (URL: {badge_link[:60]}...)")
+            elif len(self._debug_logged) < 3 and debug_key not in self._debug_logged:
                 self._debug_logged.add(debug_key)
                 if completion_date:
                     print(f"    [DEBUG] ✓ Date extracted: {completion_date} for {email[:30]}...")
@@ -926,6 +1371,8 @@ class SkillboostVerifier:
             print(f"\nError during badge verification: {e}")
             db_session.rollback()
         finally:
+            # Close Selenium drivers
+            self.close_selenium_drivers()
             db_manager.close_session(db_session)
     
     def print_summary(self):
@@ -980,6 +1427,10 @@ def main():
         sys.exit(1)
     
     print("✓ Database connection established")
+    if SELENIUM_AVAILABLE:
+        print("✓ Selenium available - Credly badges will use Selenium for date extraction")
+    else:
+        print("⚠ Selenium not available - Credly badges will use fallback method")
     print("="*60)
     print("Starting Skillboost Verification with Parallel Processing")
     print(f"Workers: {args.workers}")
