@@ -39,7 +39,7 @@
         
         <!-- Quick Stats -->
         <div class="row mt-5" id="stats">
-            <div class="col-md-3 mb-3">
+            <div class="col-md-4 mb-3">
                 <div class="card stat-card text-center">
                     <div class="card-body">
                         <i class="bi bi-people-fill text-primary" style="font-size: 2rem;"></i>
@@ -48,7 +48,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-3 mb-3">
+            <div class="col-md-4 mb-3">
                 <div class="card stat-card text-center">
                     <div class="card-body">
                         <i class="bi bi-patch-check-fill text-success" style="font-size: 2rem;"></i>
@@ -57,21 +57,12 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-3 mb-3">
+            <div class="col-md-4 mb-3">
                 <div class="card stat-card text-center">
                     <div class="card-body">
                         <i class="bi bi-clock-fill text-warning" style="font-size: 2rem;"></i>
                         <h3 class="mt-2 mb-0" id="pending-badges">-</h3>
                         <p class="text-muted mb-0">Pending Badges</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card stat-card text-center">
-                    <div class="card-body">
-                        <i class="bi bi-camera-video-fill text-info" style="font-size: 2rem;"></i>
-                        <h3 class="mt-2 mb-0" id="total-attendance">-</h3>
-                        <p class="text-muted mb-0">Masterclass Views</p>
                     </div>
                 </div>
             </div>
@@ -130,15 +121,47 @@
 <script>
     // Load stats on page load
     fetch('/api/stats')
-        .then(response => response.json())
+        .then(response => {
+            // Check content type to ensure we got JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                return response.text().then(text => {
+                    console.error('Expected JSON but got:', contentType, text.substring(0, 200));
+                    throw new Error('Response is not JSON');
+                });
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
-            document.getElementById('total-users').textContent = data.users.total.toLocaleString();
-            document.getElementById('verified-badges').textContent = data.badges.verified.toLocaleString();
-            document.getElementById('pending-badges').textContent = data.badges.pending.toLocaleString();
-            document.getElementById('total-attendance').textContent = data.masterclasses.total_attendance.toLocaleString();
+            console.log('Stats data received:', data);
+            
+            // Check if data structure is correct
+            if (data && data.users && data.badges) {
+                const totalUsers = data.users.total || 0;
+                const verifiedBadges = data.badges.verified || 0;
+                const pendingBadges = data.badges.pending || 0;
+                
+                document.getElementById('total-users').textContent = totalUsers.toLocaleString();
+                document.getElementById('verified-badges').textContent = verifiedBadges.toLocaleString();
+                document.getElementById('pending-badges').textContent = pendingBadges.toLocaleString();
+            } else {
+                console.error('Invalid data structure:', data);
+                // Set default values if structure is wrong
+                document.getElementById('total-users').textContent = '0';
+                document.getElementById('verified-badges').textContent = '0';
+                document.getElementById('pending-badges').textContent = '0';
+            }
         })
         .catch(error => {
             console.error('Error loading stats:', error);
+            // Set default values on error
+            document.getElementById('total-users').textContent = '0';
+            document.getElementById('verified-badges').textContent = '0';
+            document.getElementById('pending-badges').textContent = '0';
         });
 </script>
 {% endblock %}

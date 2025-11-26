@@ -14,7 +14,7 @@ import uuid
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.database import db_manager, UserPII, Course, SkillboostProfile, MasterClass
+from app.database import db_manager, UserPII, Course, SkillboostProfile, MasterClass, MasterLog
 from app.queries import (
     get_user_complete_profile,
     search_users,
@@ -1220,8 +1220,7 @@ def export_certificate_users():
         # Write header
         writer.writerow([
             'Name', 'Email', 'Phone Number', 'Gender', 'Country', 'State', 'City',
-            'Occupation', 'LinkedIn', 'Courses Completed', 'Total Courses',
-            'Master Class Type'
+            'Occupation', 'LinkedIn', 'Courses Completed', 'Total Courses'
         ])
         
         # Write data
@@ -1237,8 +1236,7 @@ def export_certificate_users():
                 user.get('occupation', ''),
                 user.get('linkedin', ''),
                 user.get('courses_completed', 0),
-                user.get('total_courses', 0),
-                user.get('master_class_type', '')
+                user.get('total_courses', 0)
             ])
         
         # Create response

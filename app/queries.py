@@ -90,12 +90,21 @@ def get_verification_statistics(session):
         func.sum(case((SkillboostProfile.valid.is_(None), 1), else_=0)).label('pending')
     ).first()
     
+    # Handle case where profile_stats might be None
+    if profile_stats is None:
+        profile_stats = type('obj', (object,), {
+            'total': 0,
+            'verified': 0,
+            'failed': 0,
+            'pending': 0
+        })()
+    
     # Badge verification stats (considering date requirement)
     # Count badges that are truly valid (valid=True AND date requirement met)
     all_courses = session.query(Course).all()
     verified_count = sum(1 for c in all_courses if is_badge_valid(c))
     failed_count = sum(1 for c in all_courses if c.valid is False)
-    pending_count = sum(1 for c in all_courses if c.valid.is_(None))
+    pending_count = sum(1 for c in all_courses if c.valid is None)
     total_count = len(all_courses)
     
     badge_stats = type('obj', (object,), {
@@ -105,15 +114,11 @@ def get_verification_statistics(session):
         'pending': pending_count
     })()
     
-    # User stats
-    user_stats = session.query(
-        func.count(UserPII.email).label('total_users')
-    ).first()
+    # User stats - use scalar() for single value queries
+    total_users = session.query(func.count(UserPII.email)).scalar() or 0
     
-    # Masterclass stats
-    masterclass_stats = session.query(
-        func.count(MasterClass.email).label('total_attendance')
-    ).first()
+    # Masterclass stats - use scalar() for single value queries
+    total_attendance = session.query(func.count(MasterClass.email)).scalar() or 0
     
     return {
         'profiles': {
@@ -129,10 +134,10 @@ def get_verification_statistics(session):
             'pending': badge_stats.pending or 0
         },
         'users': {
-            'total': user_stats.total_users or 0
+            'total': total_users
         },
         'masterclasses': {
-            'total_attendance': masterclass_stats.total_attendance or 0
+            'total_attendance': total_attendance
         }
     }
 
@@ -455,6 +460,47 @@ def get_dashboard_statistics(session):
 def get_badge_statistics_breakdown(session):
     """Get detailed badge statistics with breakdown by occupation/category"""
     import re
+    from collections import OrderedDict
+    
+    # Fixed order for tracks (as specified by user)
+    TRACK_ORDER = [
+        'Data Track',
+        'AI/ML Track',
+        'Serverless Track',
+        'Dev Ops Track',
+        'Security Track',
+        'Networking Track'
+    ]
+    
+    # Fixed order for badges within each track (as specified by user)
+    BADGE_ORDER = {
+        'Data Track': [
+            'Share Data Using Google Data Cloud',
+            'Store, Process, and Manage Data on Google Cloud - Command Line',
+            'Streaming Analytics into BigQuery'
+        ],
+        'AI/ML Track': [
+            'Automate Data Capture at Scale with Document AI',
+            'Prepare Data for ML APIs on Google Cloud'
+        ],
+        'Serverless Track': [
+            'Cloud Run Functions: 3 Ways',
+            'Develop Serverless Applications on Cloud Run',
+            'Develop Serverless Apps with Firebase'
+        ],
+        'Dev Ops Track': [
+            'Implement CI/CD Pipelines on Google Cloud',
+            'Manage Kubernetes in Google Cloud'
+        ],
+        'Security Track': [
+            'Create a Secure Data Lake on Cloud Storage',
+            'Get Started with Sensitive Data Protection'
+        ],
+        'Networking Track': [
+            'Build a Secure Google Cloud Network',
+            'Develop Your Google Cloud Network'
+        ]
+    }
     
     # Track name mappings from problem_statement prefixes to display names
     track_prefix_map = {
@@ -572,10 +618,35 @@ def get_badge_statistics_breakdown(session):
             track_info['track_valid'] += valid
             track_info['track_invalid'] += invalid
         
-        # Sort badges by name
-        track_info['badges'].sort(key=lambda x: x['name'])
+        # Sort badges according to fixed order for this track
+        badge_order = BADGE_ORDER.get(track_name, [])
+        if badge_order:
+            # Create a mapping of badge name to order index
+            order_map = {name: idx for idx, name in enumerate(badge_order)}
+            # Sort badges: first by fixed order, then alphabetically for any not in the list
+            track_info['badges'].sort(key=lambda x: (
+                order_map.get(x['name'], 999),  # Use fixed order if available, else 999
+                x['name']  # Then sort alphabetically
+            ))
+        else:
+            # If track not in fixed order, sort alphabetically
+            track_info['badges'].sort(key=lambda x: x['name'])
         
         badge_data[track_name] = track_info
+    
+    # Sort tracks according to fixed order
+    # Create ordered dictionary with tracks in the specified order
+    ordered_badge_data = OrderedDict()
+    for track_name in TRACK_ORDER:
+        if track_name in badge_data:
+            ordered_badge_data[track_name] = badge_data[track_name]
+    
+    # Add any remaining tracks not in the fixed order (alphabetically)
+    remaining_tracks = sorted([t for t in badge_data.keys() if t not in TRACK_ORDER])
+    for track_name in remaining_tracks:
+        ordered_badge_data[track_name] = badge_data[track_name]
+    
+    badge_data = ordered_badge_data
     
     # Get summary statistics
     # Count total profile records (not distinct emails) to match dashboard
@@ -609,8 +680,7 @@ def get_certificate_eligible_users(session, track_name):
     Get users eligible for certificate in a specific track
     
     Eligibility criteria:
-    1. User must have completed ALL courses under that track (valid = TRUE)
-    2. User must have attended the master class for that track (live = TRUE OR recorded = TRUE)
+    - User must have completed ALL courses under that track (valid = TRUE and completion_date >= 2025-10-27)
     
     Args:
         session: Database session
@@ -631,21 +701,10 @@ def get_certificate_eligible_users(session, track_name):
         'Serverless': ['[Serverless]']
     }
     
-    # Map track names to master class names
-    track_to_masterclass = {
-        'AI/ML': 'AI/ML Track - Master Class',
-        'Data': 'Data Track - Master Class',
-        'Dev Ops': 'Dev Ops Track - Master Class',
-        'Security': 'Security Track - Master Class',
-        'Networking': 'Networking Track - Master Class',
-        'Serverless': 'Serverless Track - Master Class'
-    }
-    
     if track_name not in track_to_prefix:
         return []
     
     prefixes = track_to_prefix[track_name]
-    master_class_name = track_to_masterclass[track_name]
     
     # Get all courses for this track
     all_track_courses = []
@@ -685,18 +744,6 @@ def get_certificate_eligible_users(session, track_name):
         if len(valid_courses) < len(all_track_courses):
             continue  # User hasn't completed all courses
         
-        # Check if user has master class attendance (live OR recorded = TRUE)
-        master_class = session.query(MasterClass).filter(
-            MasterClass.email == user_email,
-            MasterClass.master_class_name == master_class_name
-        ).first()
-        
-        if not master_class:
-            continue  # User hasn't attended master class
-        
-        if master_class.live != True and master_class.recorded != True:
-            continue  # Master class not validated
-        
         # User is eligible! Get their PII data
         user = session.query(UserPII).filter_by(email=user_email).first()
         if user:
@@ -714,9 +761,7 @@ def get_certificate_eligible_users(session, track_name):
                 'occupation': normalized_occupation,
                 'linkedin': user.linkedin,
                 'courses_completed': len(valid_courses),
-                'total_courses': len(all_track_courses),
-                'master_class_attended': True,
-                'master_class_type': 'Live' if master_class.live == True else 'Recorded'
+                'total_courses': len(all_track_courses)
             })
     
     return eligible_users

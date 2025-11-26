@@ -113,9 +113,6 @@
         <button class="btn btn-primary table-btn" data-table="skillboost_profile">
             <i class="bi bi-link-45deg"></i> Skillboost Profiles
         </button>
-        <button class="btn btn-primary table-btn" data-table="master_classes">
-            <i class="bi bi-camera-video"></i> Masterclasses
-        </button>
         <button class="btn btn-primary table-btn" data-table="master_log">
             <i class="bi bi-clock-history"></i> Audit Log
         </button>
@@ -519,12 +516,6 @@ const tableFields = {
         'valid': 'boolean',
         'remarks': 'text'
     },
-    'master_classes': {
-        'email': 'text',
-        'master_class_name': 'text',
-        'watched_live_or_recorded': 'select',
-        'attended_on': 'date'
-    },
     'master_log': {
         'email': 'text',
         'table_name': 'text',
@@ -539,7 +530,6 @@ const selectOptions = {
     'occupation': ['COLLEGE_STUDENT', 'WORKING_PROFESSIONAL', 'ENTREPRENEUR', 'OTHER'],
     'track_type': ['Development', 'Infrastructure', 'Data & AI'],
     'badge_type': ['Skill Badge', 'Arcade Game', 'Trivia'],
-    'watched_live_or_recorded': ['Live', 'Recorded'],
     'operation': ['INSERT', 'UPDATE', 'DELETE']
 };
 

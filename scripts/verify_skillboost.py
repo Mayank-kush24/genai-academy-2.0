@@ -1192,7 +1192,9 @@ class SkillboostVerifier:
             # Small random delay to distribute load
             time.sleep(random.uniform(0.1, 0.5))
             
-            if not badge_link or badge_link.strip() == '':
+            # Check for empty or invalid badge links (including "-")
+            badge_link_clean = badge_link.strip() if badge_link else ''
+            if not badge_link_clean or badge_link_clean == '' or badge_link_clean == '-':
                 return {
                     'email': email,
                     'problem_statement': problem_statement,
@@ -1263,14 +1265,20 @@ class SkillboostVerifier:
             if force_reverify:
                 # Include ALL badges (verified, failed, or pending) for re-verification
                 # This will check both course match AND date requirement (>= 2025-10-27)
+                # Exclude records with "-" or empty badge links
                 query = db_session.query(Course).filter(
-                    Course.share_skill_badge_public_link.isnot(None)
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.share_skill_badge_public_link != '-',
+                    Course.share_skill_badge_public_link != ''
                 )
             else:
                 # Only get badges that are unverified (valid is NULL)
+                # Exclude records with "-" or empty badge links
                 query = db_session.query(Course).filter(
                     Course.valid.is_(None),
-                    Course.share_skill_badge_public_link.isnot(None)
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.share_skill_badge_public_link != '-',
+                    Course.share_skill_badge_public_link != ''
                 )
             
             if limit:
