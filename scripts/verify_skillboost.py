@@ -1104,15 +1104,33 @@ class SkillboostVerifier:
                 'remarks': f'Verification error: {str(e)}'
             }
     
-    def verify_profiles(self, limit=None):
-        """Verify all unverified Skillboost profiles using parallel processing"""
+    def verify_profiles(self, limit=None, force_reverify=False):
+        """Verify all unverified Skillboost profiles using parallel processing
+        
+        Args:
+            limit: Maximum number of profiles to verify
+            force_reverify: If True, reverify ALL profiles regardless of their current status
+        """
         db_session = db_manager.get_session()
         
         try:
-            # Get profiles that need verification (valid is NULL)
-            query = db_session.query(SkillboostProfile).filter(
-                SkillboostProfile.valid.is_(None)
-            )
+            # Get profiles that need verification
+            if force_reverify:
+                # Include ALL profiles (verified, failed, or pending) for re-verification
+                # Exclude records with empty profile links
+                query = db_session.query(SkillboostProfile).filter(
+                    SkillboostProfile.google_cloud_skills_boost_profile_link.isnot(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link != '',
+                    SkillboostProfile.google_cloud_skills_boost_profile_link != '-'
+                )
+            else:
+                # Only get profiles that are unverified (valid is NULL)
+                query = db_session.query(SkillboostProfile).filter(
+                    SkillboostProfile.valid.is_(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link.isnot(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link != '',
+                    SkillboostProfile.google_cloud_skills_boost_profile_link != '-'
+                )
             
             if limit:
                 query = query.limit(limit)
@@ -1122,6 +1140,8 @@ class SkillboostVerifier:
             print(f"\nVerifying {len(profiles)} Skillboost profiles using {self.max_workers} parallel workers...")
             print(f"Estimated time: ~{len(profiles) // self.max_workers // 60} minutes")
             print(f"Note: Verification checks URL validity and accessibility only (no name matching)")
+            if force_reverify:
+                print("Mode: Force re-verification - ALL profiles will be reverified")
             
             # Prepare profile data for parallel processing
             profile_data_list = []
@@ -1409,7 +1429,7 @@ def run_verification(profiles=True, badges=True, limit=None, max_workers=10, for
     verifier = SkillboostVerifier(max_workers=max_workers)
     
     if profiles:
-        verifier.verify_profiles(limit=limit)
+        verifier.verify_profiles(limit=limit, force_reverify=force_reverify)
     
     if badges:
         verifier.verify_badges(limit=limit, force_reverify=force_reverify)

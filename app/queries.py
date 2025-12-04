@@ -577,7 +577,10 @@ def get_badge_statistics_breakdown(session):
         # Process each unique badge
         for badge_name, submissions in badge_names.items():
             total = len(submissions)
+            # Count valid badges (is_badge_valid returns True)
             valid = sum(1 for b in submissions if b['valid'] == True)
+            # Count invalid badges: includes both explicitly invalid (False) and pending (None)
+            # Since is_badge_valid returns False for pending badges, we count all non-valid
             invalid = sum(1 for b in submissions if b['valid'] == False)
             
             # Breakdown by occupation
@@ -603,6 +606,8 @@ def get_badge_statistics_breakdown(session):
                 
                 breakdown[display_category] = {
                     'valid': sum(1 for b in category_submissions if b['valid'] == True),
+                    # Count invalid: includes both explicitly invalid (False) and pending (None)
+                    # Since is_badge_valid returns False for pending badges, we count all non-valid
                     'invalid': sum(1 for b in category_submissions if b['valid'] == False)
                 }
             
@@ -659,7 +664,10 @@ def get_badge_statistics_breakdown(session):
     # Count truly valid badges (considering date requirement)
     all_courses = session.query(Course).all()
     valid_badges = sum(1 for c in all_courses if is_badge_valid(c))
-    invalid_badges = session.query(func.count(Course.email)).filter(Course.valid == False).scalar() or 0
+    # Count invalid badges: both explicitly invalid (False) and pending (None) are considered invalid
+    invalid_badges = session.query(func.count(Course.email)).filter(
+        or_(Course.valid == False, Course.valid.is_(None))
+    ).scalar() or 0
     
     summary = {
         'total_profiles': total_profiles,

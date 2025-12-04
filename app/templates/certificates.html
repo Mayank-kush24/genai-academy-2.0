@@ -13,12 +13,27 @@
         padding: 1.5rem;
         border-radius: 10px 10px 0 0;
         margin-bottom: 0;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        user-select: none;
+    }
+    .track-header:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+    .track-header.collapsed {
+        border-radius: 10px;
     }
     .track-card {
         border: 1px solid #dee2e6;
         border-radius: 10px;
         overflow: hidden;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+    }
+    .track-card:hover {
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
     }
     .certificate-badge {
         display: inline-block;
@@ -28,6 +43,35 @@
         border-radius: 20px;
         font-size: 0.85rem;
         font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    .collapse-icon {
+        transition: transform 0.3s ease;
+        display: inline-block;
+        margin-left: 0.5rem;
+    }
+    .collapse-icon.rotated {
+        transform: rotate(180deg);
+    }
+    .track-content {
+        overflow: hidden;
+        transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+                    opacity 0.3s ease, 
+                    padding 0.3s ease;
+        max-height: 0;
+        opacity: 0;
+    }
+    .track-content.collapsed {
+        max-height: 0;
+        opacity: 0;
+    }
+    .track-content.expanded {
+        max-height: 5000px;
+        opacity: 1;
+    }
+    .card-body {
+        padding: 1.5rem;
+        transition: all 0.3s ease;
     }
     .user-table {
         margin-top: 0;
@@ -35,14 +79,44 @@
     .loading-spinner {
         text-align: center;
         padding: 2rem;
+        animation: fadeIn 0.3s ease;
     }
     .empty-state {
         text-align: center;
         padding: 3rem;
         color: #6c757d;
+        animation: fadeIn 0.3s ease;
     }
     .export-btn {
         margin-top: 1rem;
+        transition: all 0.3s ease;
+    }
+    .export-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    .table-responsive {
+        animation: slideDown 0.4s ease;
+    }
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 </style>
 {% endblock %}
@@ -64,43 +138,48 @@
     <div class="row">
         {% set tracks = ['AI/ML', 'Data', 'Dev Ops', 'Security', 'Networking', 'Serverless'] %}
         {% for track in tracks %}
+        {% set trackId = track|replace(' ', '-')|replace('/', '-') %}
         <div class="col-12 track-section">
             <div class="track-card">
-                <div class="track-header">
+                <div class="track-header collapsed" onclick="toggleTrack('{{ trackId }}')" id="header-{{ trackId }}">
                     <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h4 class="mb-1">
-                                <i class="bi bi-trophy-fill"></i> {{ track }} Track Certificate
-                            </h4>
-                            <p class="mb-0 opacity-75">
-                                Eligibility: All courses completed (valid badges)
-                            </p>
+                        <div class="d-flex align-items-center">
+                            <div>
+                                <h4 class="mb-1">
+                                    <i class="bi bi-trophy-fill"></i> {{ track }} Track Certificate
+                                </h4>
+                                <p class="mb-0 opacity-75">
+                                    Eligibility: All courses completed (valid badges)
+                                </p>
+                            </div>
+                            <i class="bi bi-chevron-down collapse-icon" id="icon-{{ trackId }}"></i>
                         </div>
                         <div>
-                            <span class="certificate-badge" id="badge-{{ track|replace(' ', '-')|replace('/', '-') }}">
-                                <span id="count-{{ track|replace(' ', '-')|replace('/', '-') }}">0</span> Eligible
+                            <span class="certificate-badge" id="badge-{{ trackId }}">
+                                <span id="count-{{ trackId }}">0</span> Eligible
                             </span>
                         </div>
                     </div>
                 </div>
-                <div class="card-body">
+                <div class="track-content collapsed" id="content-wrapper-{{ trackId }}">
+                    <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0">Eligible Users</h5>
                         <button class="btn btn-primary btn-sm export-btn" 
-                                onclick="exportTrack('{{ track }}')"
-                                id="export-btn-{{ track|replace(' ', '-')|replace('/', '-') }}"
+                                onclick="event.stopPropagation(); exportTrack('{{ track }}')"
+                                id="export-btn-{{ trackId }}"
                                 style="display: none;">
                             <i class="bi bi-download"></i> Export CSV
                         </button>
                     </div>
                     
-                    <div id="loading-{{ track|replace(' ', '-')|replace('/', '-') }}" class="loading-spinner">
+                    <div id="loading-{{ trackId }}" class="loading-spinner">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
                     </div>
                     
-                    <div id="content-{{ track|replace(' ', '-')|replace('/', '-') }}" style="display: none;">
+                    <div id="content-{{ trackId }}" style="display: none;">
                         <div class="table-responsive">
                             <table class="table table-hover table-striped user-table">
                                 <thead class="table-light">
@@ -114,17 +193,18 @@
                                         <th>LinkedIn</th>
                                     </tr>
                                 </thead>
-                                <tbody id="table-{{ track|replace(' ', '-')|replace('/', '-') }}">
+                                <tbody id="table-{{ trackId }}">
                                     <!-- Data will be populated here -->
                                 </tbody>
                             </table>
                         </div>
                     </div>
                     
-                    <div id="empty-{{ track|replace(' ', '-')|replace('/', '-') }}" class="empty-state" style="display: none;">
+                    <div id="empty-{{ trackId }}" class="empty-state" style="display: none;">
                         <i class="bi bi-inbox" style="font-size: 3rem;"></i>
                         <p class="mt-3">No eligible users found for this track</p>
                         <small class="text-muted">Users must complete all courses and attend the master class</small>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -137,13 +217,40 @@
 {% block extra_js %}
 <script>
     const tracks = ['AI/ML', 'Data', 'Dev Ops', 'Security', 'Networking', 'Serverless'];
+    const trackStates = {}; // Track which sections are expanded
     
     // Load data for all tracks on page load
     document.addEventListener('DOMContentLoaded', function() {
         tracks.forEach(track => {
+            const trackId = track.replace(' ', '-').replace('/', '-');
+            trackStates[trackId] = false; // Initially collapsed
             loadTrackData(track);
         });
     });
+    
+    function toggleTrack(trackId) {
+        const contentWrapper = document.getElementById(`content-wrapper-${trackId}`);
+        const header = document.getElementById(`header-${trackId}`);
+        const icon = document.getElementById(`icon-${trackId}`);
+        
+        const isExpanded = trackStates[trackId];
+        
+        if (isExpanded) {
+            // Collapse
+            contentWrapper.classList.remove('expanded');
+            contentWrapper.classList.add('collapsed');
+            header.classList.add('collapsed');
+            icon.classList.remove('rotated');
+            trackStates[trackId] = false;
+        } else {
+            // Expand
+            contentWrapper.classList.remove('collapsed');
+            contentWrapper.classList.add('expanded');
+            header.classList.remove('collapsed');
+            icon.classList.add('rotated');
+            trackStates[trackId] = true;
+        }
+    }
     
     function loadTrackData(track) {
         const trackId = track.replace(' ', '-').replace('/', '-');

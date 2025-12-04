@@ -87,6 +87,18 @@
     .export-btn {
         margin-left: 10px;
     }
+    .verification-section {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 2px solid #e0e0e0;
+    }
+    #verificationProgress .progress {
+        height: 25px;
+    }
+    #verificationProgress .progress-bar {
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
 </style>
 {% endblock %}
 
@@ -217,6 +229,78 @@
 <!-- Data Table -->
 <div id="dataContainer" style="display:none;">
     <div class="data-table-container">
+        <!-- Verification Section (only for Course Badges and Skillboost Profiles) -->
+        <div id="verificationSection" style="display:none; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
+            <h5 class="mb-3"><i class="bi bi-shield-check"></i> Badge Verification</h5>
+            <div class="d-flex gap-2 mb-3">
+                <button class="btn btn-primary" id="verifyAllBtn">
+                    <i class="bi bi-check-circle"></i> Verify All Badges
+                </button>
+                <button class="btn btn-warning" id="verifyLatestBtn">
+                    <i class="bi bi-clock-history"></i> Verify Latest Badges
+                </button>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div id="verificationProgress" style="display:none;">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="mb-3">Verification Progress</h6>
+                        <div class="progress mb-2" style="height: 25px;">
+                            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%">
+                                <span id="progressText">0%</span>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between text-muted small">
+                            <span id="progressStatus">Initializing...</span>
+                            <span id="progressCount">0 / 0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results -->
+            <div id="verificationResults" style="display:none;">
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h6 class="mb-3">Verification Results</h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="text-center p-3 bg-success bg-opacity-10 rounded">
+                                    <h4 id="resultVerified" class="text-success mb-0">0</h4>
+                                    <small class="text-muted">Verified</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center p-3 bg-danger bg-opacity-10 rounded">
+                                    <h4 id="resultFailed" class="text-danger mb-0">0</h4>
+                                    <small class="text-muted">Failed</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center p-3 bg-warning bg-opacity-10 rounded">
+                                    <h4 id="resultPending" class="text-warning mb-0">0</h4>
+                                    <small class="text-muted">Pending</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center p-3 bg-info bg-opacity-10 rounded">
+                                    <h4 id="resultTotal" class="text-info mb-0">0</h4>
+                                    <small class="text-muted">Total Processed</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-sm btn-outline-primary" id="refreshTableBtn">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh Table
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <div id="tableContent"></div>
         
         <div class="pagination-container">
@@ -289,6 +373,25 @@ async function loadTableData() {
                 document.getElementById('verifiedStats').style.display = 'none';
                 document.getElementById('failedStats').style.display = 'none';
                 document.getElementById('pendingStats').style.display = 'none';
+            }
+            
+            // Show verification section for courses and skillboost_profile tables
+            if (['courses', 'skillboost_profile'].includes(currentTable)) {
+                document.getElementById('verificationSection').style.display = 'block';
+                // Update button labels based on table type
+                if (currentTable === 'courses') {
+                    document.getElementById('verifyAllBtn').innerHTML = '<i class="bi bi-check-circle"></i> Verify All Badges';
+                    document.getElementById('verifyLatestBtn').innerHTML = '<i class="bi bi-clock-history"></i> Verify Latest Badges';
+                    document.querySelector('#verificationSection h5').innerHTML = '<i class="bi bi-shield-check"></i> Badge Verification';
+                } else if (currentTable === 'skillboost_profile') {
+                    document.getElementById('verifyAllBtn').innerHTML = '<i class="bi bi-check-circle"></i> Verify All Profiles';
+                    document.getElementById('verifyLatestBtn').innerHTML = '<i class="bi bi-clock-history"></i> Verify Latest Profiles';
+                    document.querySelector('#verificationSection h5').innerHTML = '<i class="bi bi-shield-check"></i> Profile Verification';
+                }
+            } else {
+                document.getElementById('verificationSection').style.display = 'none';
+                document.getElementById('verificationProgress').style.display = 'none';
+                document.getElementById('verificationResults').style.display = 'none';
             }
         } else {
             alert('Error loading data: ' + data.error);
@@ -705,6 +808,150 @@ if (exportBtn) {
         const exportUrl = `/api/export/${currentTable}`;
         window.location.href = exportUrl;
     });
+}
+
+// Verification functionality
+let verificationStatusInterval = null;
+let currentVerificationId = null;
+
+document.getElementById('verifyAllBtn').addEventListener('click', () => {
+    startVerification(true);
+});
+
+document.getElementById('verifyLatestBtn').addEventListener('click', () => {
+    startVerification(false);
+});
+
+document.getElementById('refreshTableBtn').addEventListener('click', () => {
+    loadTableData();
+});
+
+async function startVerification(verifyAll) {
+    const verifyAllBtn = document.getElementById('verifyAllBtn');
+    const verifyLatestBtn = document.getElementById('verifyLatestBtn');
+    const progressDiv = document.getElementById('verificationProgress');
+    const resultsDiv = document.getElementById('verificationResults');
+    
+    // Disable buttons
+    verifyAllBtn.disabled = true;
+    verifyLatestBtn.disabled = true;
+    
+    // Hide results, show progress
+    resultsDiv.style.display = 'none';
+    progressDiv.style.display = 'block';
+    
+    // Reset progress
+    updateProgress(0, 'Starting verification...', 0, 0);
+    
+    try {
+        // Determine API endpoint based on current table
+        const endpoint = currentTable === 'courses' 
+            ? '/api/verify/badges/start' 
+            : '/api/verify/profiles/start';
+        
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                verify_all: verifyAll
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentVerificationId = data.verification_id;
+            // Start polling for status
+            startStatusPolling();
+        } else {
+            alert('Error starting verification: ' + data.error);
+            verifyAllBtn.disabled = false;
+            verifyLatestBtn.disabled = false;
+            progressDiv.style.display = 'none';
+        }
+    } catch (error) {
+        alert('Failed to start verification: ' + error.message);
+        verifyAllBtn.disabled = false;
+        verifyLatestBtn.disabled = false;
+        progressDiv.style.display = 'none';
+    }
+}
+
+function startStatusPolling() {
+    if (verificationStatusInterval) {
+        clearInterval(verificationStatusInterval);
+    }
+    
+    verificationStatusInterval = setInterval(async () => {
+        try {
+            // Determine API endpoint based on current table
+            const endpoint = currentTable === 'courses'
+                ? `/api/verify/badges/status/${currentVerificationId}`
+                : `/api/verify/profiles/status/${currentVerificationId}`;
+            
+            const response = await fetch(endpoint);
+            const data = await response.json();
+            
+            if (data.success) {
+                const status = data.status;
+                const progress = status.total > 0 ? Math.round((status.completed / status.total) * 100) : 0;
+                
+                updateProgress(
+                    progress,
+                    status.message || 'Processing...',
+                    status.completed,
+                    status.total
+                );
+                
+                // If completed, show results and stop polling
+                if (status.status === 'completed') {
+                    clearInterval(verificationStatusInterval);
+                    verificationStatusInterval = null;
+                    showResults(status.results);
+                    
+                    // Re-enable buttons
+                    document.getElementById('verifyAllBtn').disabled = false;
+                    document.getElementById('verifyLatestBtn').disabled = false;
+                } else if (status.status === 'error') {
+                    clearInterval(verificationStatusInterval);
+                    verificationStatusInterval = null;
+                    alert('Verification error: ' + status.message);
+                    document.getElementById('verifyAllBtn').disabled = false;
+                    document.getElementById('verifyLatestBtn').disabled = false;
+                    document.getElementById('verificationProgress').style.display = 'none';
+                }
+            }
+        } catch (error) {
+            console.error('Error checking verification status:', error);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+function updateProgress(percent, message, completed, total) {
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const progressStatus = document.getElementById('progressStatus');
+    const progressCount = document.getElementById('progressCount');
+    
+    progressBar.style.width = percent + '%';
+    progressText.textContent = percent + '%';
+    progressStatus.textContent = message;
+    progressCount.textContent = `${completed} / ${total}`;
+}
+
+function showResults(results) {
+    const resultsDiv = document.getElementById('verificationResults');
+    const progressDiv = document.getElementById('verificationProgress');
+    
+    document.getElementById('resultVerified').textContent = results.verified || 0;
+    document.getElementById('resultFailed').textContent = results.failed || 0;
+    document.getElementById('resultPending').textContent = results.pending || 0;
+    document.getElementById('resultTotal').textContent = results.total || 0;
+    
+    progressDiv.style.display = 'none';
+    resultsDiv.style.display = 'block';
 }
 </script>
 {% endblock %}

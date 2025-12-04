@@ -10,6 +10,10 @@ import io
 import os
 import sys
 import uuid
+import threading
+import time
+import subprocess
+from collections import defaultdict
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,6 +50,10 @@ from app.auth import (
     DEFAULT_ROLE_PERMISSIONS
 )
 from config import Config
+
+# Verification status storage (in-memory, will be lost on server restart)
+verification_status = {}
+verification_lock = threading.Lock()
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -1330,6 +1338,416 @@ def get_dashboard_stats():
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
         db_manager.close_session(session)
+
+
+@app.route('/api/verify/badges/start', methods=['POST'])
+@login_required
+@permission_required('verification_queue')
+def start_badge_verification():
+    """Start badge verification in background"""
+    try:
+        data = request.get_json()
+        verify_all = data.get('verify_all', False)
+        
+        # Generate unique verification ID
+        verification_id = str(uuid.uuid4())
+        
+        # Initialize status
+        with verification_lock:
+            verification_status[verification_id] = {
+                'status': 'running',
+                'message': 'Initializing verification...',
+                'total': 0,
+                'completed': 0,
+                'verified': 0,
+                'failed': 0,
+                'pending': 0,
+                'started_at': datetime.now().isoformat(),
+                'results': None
+            }
+        
+        # Start verification in background thread
+        thread = threading.Thread(
+            target=run_verification_background,
+            args=(verification_id, verify_all),
+            daemon=True
+        )
+        thread.start()
+        
+        return jsonify({
+            'success': True,
+            'verification_id': verification_id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/verify/badges/status/<verification_id>')
+@login_required
+@permission_required('verification_queue')
+def get_badge_verification_status(verification_id):
+    """Get badge verification status"""
+    with verification_lock:
+        status = verification_status.get(verification_id)
+        
+        if not status:
+            return jsonify({
+                'success': False,
+                'error': 'Verification ID not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'status': status
+        })
+
+
+@app.route('/api/verify/profiles/start', methods=['POST'])
+@login_required
+@permission_required('verification_queue')
+def start_profile_verification():
+    """Start profile verification in background"""
+    try:
+        data = request.get_json()
+        verify_all = data.get('verify_all', False)
+        
+        # Generate unique verification ID
+        verification_id = str(uuid.uuid4())
+        
+        # Initialize status
+        with verification_lock:
+            verification_status[verification_id] = {
+                'status': 'running',
+                'message': 'Initializing verification...',
+                'total': 0,
+                'completed': 0,
+                'verified': 0,
+                'failed': 0,
+                'pending': 0,
+                'started_at': datetime.now().isoformat(),
+                'results': None
+            }
+        
+        # Start verification in background thread
+        thread = threading.Thread(
+            target=run_profile_verification_background,
+            args=(verification_id, verify_all),
+            daemon=True
+        )
+        thread.start()
+        
+        return jsonify({
+            'success': True,
+            'verification_id': verification_id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/verify/profiles/status/<verification_id>')
+@login_required
+@permission_required('verification_queue')
+def get_profile_verification_status(verification_id):
+    """Get profile verification status"""
+    with verification_lock:
+        status = verification_status.get(verification_id)
+        
+        if not status:
+            return jsonify({
+                'success': False,
+                'error': 'Verification ID not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'status': status
+        })
+
+
+def run_verification_background(verification_id, verify_all):
+    """Run verification in background subprocess"""
+    try:
+        # Update status
+        with verification_lock:
+            verification_status[verification_id]['message'] = 'Loading badges...'
+        
+        # Get initial badge count for progress tracking
+        session = db_manager.get_session()
+        try:
+            if verify_all:
+                total_badges = session.query(Course).filter(
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.share_skill_badge_public_link != '-',
+                    Course.share_skill_badge_public_link != ''
+                ).count()
+                initial_pending = session.query(Course).filter(Course.valid.is_(None)).count()
+            else:
+                total_badges = session.query(Course).filter(
+                    Course.valid.is_(None),
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.share_skill_badge_public_link != '-',
+                    Course.share_skill_badge_public_link != ''
+                ).count()
+                initial_pending = total_badges
+            
+            with verification_lock:
+                verification_status[verification_id]['total'] = total_badges
+                verification_status[verification_id]['message'] = f'Verifying {total_badges} badges...'
+        finally:
+            db_manager.close_session(session)
+        
+        # Start progress monitoring thread
+        progress_thread = threading.Thread(
+            target=monitor_verification_progress,
+            args=(verification_id, verify_all, initial_pending),
+            daemon=True
+        )
+        progress_thread.start()
+        
+        # Run verification script as subprocess
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts', 'verify_skillboost.py')
+        
+        # Build command
+        cmd = [sys.executable, script_path, '--badges-only', '--workers', '10']
+        if verify_all:
+            cmd.append('--force-reverify')
+        
+        # Run in subprocess (detached on Windows, new process group)
+        if sys.platform == 'win32':
+            # Windows: Use CREATE_NEW_CONSOLE to open in new terminal
+            process = subprocess.Popen(
+                cmd,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                cwd=os.path.dirname(os.path.dirname(__file__))
+            )
+        else:
+            # Unix/Linux: Run in background
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=os.path.dirname(os.path.dirname(__file__)),
+                start_new_session=True
+            )
+        
+        # Store process ID for monitoring
+        with verification_lock:
+            verification_status[verification_id]['process_id'] = process.pid
+        
+        # Start a thread to monitor process completion
+        def monitor_process():
+            process.wait()
+            # Get final statistics after process completes
+            session = db_manager.get_session()
+            try:
+                verified_count = session.query(Course).filter(Course.valid == True).count()
+                failed_count = session.query(Course).filter(Course.valid == False).count()
+                pending_count = session.query(Course).filter(Course.valid.is_(None)).count()
+                
+                results = {
+                    'verified': verified_count,
+                    'failed': failed_count,
+                    'pending': pending_count,
+                    'total': verified_count + failed_count + pending_count
+                }
+                
+                with verification_lock:
+                    verification_status[verification_id]['status'] = 'completed'
+                    verification_status[verification_id]['message'] = 'Verification completed successfully'
+                    verification_status[verification_id]['completed'] = verification_status[verification_id]['total']
+                    verification_status[verification_id]['results'] = results
+            finally:
+                db_manager.close_session(session)
+        
+        monitor_thread = threading.Thread(target=monitor_process, daemon=True)
+        monitor_thread.start()
+            
+    except Exception as e:
+        with verification_lock:
+            verification_status[verification_id]['status'] = 'error'
+            verification_status[verification_id]['message'] = f'Error: {str(e)}'
+
+
+def run_profile_verification_background(verification_id, verify_all):
+    """Run profile verification in background subprocess"""
+    try:
+        # Update status
+        with verification_lock:
+            verification_status[verification_id]['message'] = 'Loading profiles...'
+        
+        # Get initial profile count for progress tracking
+        session = db_manager.get_session()
+        try:
+            if verify_all:
+                total_profiles = session.query(SkillboostProfile).filter(
+                    SkillboostProfile.google_cloud_skills_boost_profile_link.isnot(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link != ''
+                ).count()
+                initial_pending = session.query(SkillboostProfile).filter(SkillboostProfile.valid.is_(None)).count()
+            else:
+                total_profiles = session.query(SkillboostProfile).filter(
+                    SkillboostProfile.valid.is_(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link.isnot(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link != ''
+                ).count()
+                initial_pending = total_profiles
+            
+            with verification_lock:
+                verification_status[verification_id]['total'] = total_profiles
+                verification_status[verification_id]['message'] = f'Verifying {total_profiles} profiles...'
+        finally:
+            db_manager.close_session(session)
+        
+        # Start progress monitoring thread
+        progress_thread = threading.Thread(
+            target=monitor_profile_verification_progress,
+            args=(verification_id, verify_all, initial_pending),
+            daemon=True
+        )
+        progress_thread.start()
+        
+        # Run verification script as subprocess
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts', 'verify_skillboost.py')
+        
+        # Build command
+        cmd = [sys.executable, script_path, '--profiles-only', '--workers', '10']
+        if verify_all:
+            cmd.append('--force-reverify')
+        
+        # Run in subprocess (detached on Windows, new process group)
+        if sys.platform == 'win32':
+            # Windows: Use CREATE_NEW_CONSOLE to open in new terminal
+            process = subprocess.Popen(
+                cmd,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                cwd=os.path.dirname(os.path.dirname(__file__))
+            )
+        else:
+            # Unix/Linux: Run in background
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=os.path.dirname(os.path.dirname(__file__)),
+                start_new_session=True
+            )
+        
+        # Store process ID for monitoring
+        with verification_lock:
+            verification_status[verification_id]['process_id'] = process.pid
+        
+        # Start a thread to monitor process completion
+        def monitor_process():
+            process.wait()
+            # Get final statistics after process completes
+            session = db_manager.get_session()
+            try:
+                verified_count = session.query(SkillboostProfile).filter(SkillboostProfile.valid == True).count()
+                failed_count = session.query(SkillboostProfile).filter(SkillboostProfile.valid == False).count()
+                pending_count = session.query(SkillboostProfile).filter(SkillboostProfile.valid.is_(None)).count()
+                
+                results = {
+                    'verified': verified_count,
+                    'failed': failed_count,
+                    'pending': pending_count,
+                    'total': verified_count + failed_count + pending_count
+                }
+                
+                with verification_lock:
+                    verification_status[verification_id]['status'] = 'completed'
+                    verification_status[verification_id]['message'] = 'Verification completed successfully'
+                    verification_status[verification_id]['completed'] = verification_status[verification_id]['total']
+                    verification_status[verification_id]['results'] = results
+            finally:
+                db_manager.close_session(session)
+        
+        monitor_thread = threading.Thread(target=monitor_process, daemon=True)
+        monitor_thread.start()
+            
+    except Exception as e:
+        with verification_lock:
+            verification_status[verification_id]['status'] = 'error'
+            verification_status[verification_id]['message'] = f'Error: {str(e)}'
+
+
+def monitor_verification_progress(verification_id, verify_all, initial_pending):
+    """Monitor badge verification progress by checking database"""
+    while True:
+        time.sleep(3)  # Check every 3 seconds
+        
+        with verification_lock:
+            status = verification_status.get(verification_id)
+            if not status or status['status'] in ['completed', 'error']:
+                break
+        
+        # Check database for progress
+        session = db_manager.get_session()
+        try:
+            if verify_all:
+                # For verify_all, count how many have been processed (updated_at changed recently)
+                # This is approximate
+                total = verification_status[verification_id]['total']
+                # We can't easily track this, so use time-based estimation
+                # For now, just update message
+                with verification_lock:
+                    if verification_status.get(verification_id):
+                        verification_status[verification_id]['message'] = 'Processing badges...'
+            else:
+                # For latest badges, count remaining pending
+                remaining_pending = session.query(Course).filter(
+                    Course.valid.is_(None),
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.share_skill_badge_public_link != '-',
+                    Course.share_skill_badge_public_link != ''
+                ).count()
+                
+                total = verification_status[verification_id]['total']
+                completed = initial_pending - remaining_pending
+                
+                with verification_lock:
+                    if verification_status.get(verification_id):
+                        verification_status[verification_id]['completed'] = max(0, completed)
+                        verification_status[verification_id]['message'] = f'Processing... ({completed}/{total} completed)'
+        finally:
+            db_manager.close_session(session)
+
+
+def monitor_profile_verification_progress(verification_id, verify_all, initial_pending):
+    """Monitor profile verification progress by checking database"""
+    while True:
+        time.sleep(3)  # Check every 3 seconds
+        
+        with verification_lock:
+            status = verification_status.get(verification_id)
+            if not status or status['status'] in ['completed', 'error']:
+                break
+        
+        # Check database for progress
+        session = db_manager.get_session()
+        try:
+            if verify_all:
+                # For verify_all, just update message
+                total = verification_status[verification_id]['total']
+                with verification_lock:
+                    if verification_status.get(verification_id):
+                        verification_status[verification_id]['message'] = 'Processing profiles...'
+            else:
+                # For latest profiles, count remaining pending
+                remaining_pending = session.query(SkillboostProfile).filter(
+                    SkillboostProfile.valid.is_(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link.isnot(None),
+                    SkillboostProfile.google_cloud_skills_boost_profile_link != ''
+                ).count()
+                
+                total = verification_status[verification_id]['total']
+                completed = initial_pending - remaining_pending
+                
+                with verification_lock:
+                    if verification_status.get(verification_id):
+                        verification_status[verification_id]['completed'] = max(0, completed)
+                        verification_status[verification_id]['message'] = f'Processing... ({completed}/{total} completed)'
+        finally:
+            db_manager.close_session(session)
 
 
 @app.errorhandler(404)
