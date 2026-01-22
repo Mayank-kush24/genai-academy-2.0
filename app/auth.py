@@ -3,7 +3,7 @@ Authentication and Authorization Module
 Handles user login, permissions, and access control
 """
 from functools import wraps
-from flask import session, redirect, url_for, flash, request
+from flask import session, redirect, url_for, flash, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import Column, Integer, String, Boolean, TIMESTAMP, JSON
 from sqlalchemy.sql import func
@@ -142,13 +142,20 @@ def login_required(f):
     """Decorator to require login for a route"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check if this is an API request
+        is_api_request = request.path.startswith('/api/')
+        
         if 'user_id' not in session:
+            if is_api_request:
+                return jsonify({'success': False, 'error': 'Authentication required. Please login.'}), 401
             flash('Please login to access this page.', 'warning')
             return redirect(url_for('login', next=request.url))
         
         user = get_current_user()
         if not user:
             session.clear()
+            if is_api_request:
+                return jsonify({'success': False, 'error': 'Session expired. Please login again.'}), 401
             flash('Session expired. Please login again.', 'warning')
             return redirect(url_for('login', next=request.url))
         
@@ -161,17 +168,26 @@ def permission_required(permission):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            # Check if this is an API request
+            is_api_request = request.path.startswith('/api/')
+            
             if 'user_id' not in session:
+                if is_api_request:
+                    return jsonify({'success': False, 'error': 'Authentication required. Please login.'}), 401
                 flash('Please login to access this page.', 'warning')
                 return redirect(url_for('login', next=request.url))
             
             user = get_current_user()
             if not user:
                 session.clear()
+                if is_api_request:
+                    return jsonify({'success': False, 'error': 'Session expired. Please login again.'}), 401
                 flash('Session expired. Please login again.', 'warning')
                 return redirect(url_for('login', next=request.url))
             
             if not user.has_permission(permission):
+                if is_api_request:
+                    return jsonify({'success': False, 'error': f'You do not have permission to {permission}.'}), 403
                 flash(f'You do not have permission to access this page.', 'danger')
                 return redirect(url_for('index'))
             
@@ -184,17 +200,26 @@ def admin_required(f):
     """Decorator to require admin role for a route"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check if this is an API request
+        is_api_request = request.path.startswith('/api/')
+        
         if 'user_id' not in session:
+            if is_api_request:
+                return jsonify({'success': False, 'error': 'Authentication required. Please login.'}), 401
             flash('Please login to access this page.', 'warning')
             return redirect(url_for('login', next=request.url))
         
         user = get_current_user()
         if not user:
             session.clear()
+            if is_api_request:
+                return jsonify({'success': False, 'error': 'Session expired. Please login again.'}), 401
             flash('Session expired. Please login again.', 'warning')
             return redirect(url_for('login', next=request.url))
         
         if user.role != 'admin':
+            if is_api_request:
+                return jsonify({'success': False, 'error': 'Admin access required.'}), 403
             flash('Admin access required.', 'danger')
             return redirect(url_for('index'))
         

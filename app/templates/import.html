@@ -114,7 +114,7 @@
             <div class="mb-3">
                 <label for="csvFile" class="form-label">Choose CSV or Excel File</label>
                 <input class="form-control" type="file" id="csvFile" accept=".csv,.xlsx,.xls">
-                <div class="form-text">Supported formats: CSV, XLSX, XLS (Max size: 50MB)</div>
+                <div class="form-text">Supported formats: CSV, XLSX, XLS</div>
             </div>
             
             <div id="upload-progress" class="d-none">
@@ -426,6 +426,18 @@ document.getElementById('csvFile').addEventListener('change', async function(e) 
             body: formData
         });
         
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            if (response.status === 401 || response.status === 403) {
+                alert('Authentication error: Please login again and try uploading the file.');
+                window.location.href = '/login';
+                return;
+            }
+            throw new Error(`Server returned non-JSON response. Status: ${response.status}`);
+        }
+        
         const data = await response.json();
         
         if (data.success) {
@@ -445,7 +457,7 @@ document.getElementById('csvFile').addEventListener('change', async function(e) 
                 document.getElementById('btn-step-1-next').disabled = false;
             }
         } else {
-            alert('Error: ' + data.error);
+            alert('Error: ' + (data.error || 'Unknown error occurred'));
         }
     } catch (error) {
         alert('Upload failed: ' + error.message);
@@ -490,6 +502,18 @@ async function selectSheet(fileId, filename, sheetName) {
             body: JSON.stringify({file_id: fileId, sheet_name: sheetName})
         });
         
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            if (response.status === 401 || response.status === 403) {
+                alert('Authentication error: Please login again.');
+                window.location.href = '/login';
+                return;
+            }
+            const text = await response.text();
+            throw new Error(`Server returned non-JSON response. Status: ${response.status}`);
+        }
+        
         const data = await response.json();
         
         if (data.success) {
@@ -505,7 +529,7 @@ async function selectSheet(fileId, filename, sheetName) {
             // Close modal
             bootstrap.Modal.getInstance(document.getElementById('sheetSelectionModal')).hide();
         } else {
-            alert('Error loading sheet: ' + data.error);
+            alert('Error loading sheet: ' + (data.error || 'Unknown error'));
         }
     } catch (error) {
         alert('Failed to load sheet: ' + error.message);
@@ -744,8 +768,21 @@ document.getElementById('btn-import').addEventListener('click', async () => {
             body: JSON.stringify(requestData)
         });
         
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            if (response.status === 401 || response.status === 403) {
+                alert('Authentication error: Please login again.');
+                window.location.href = '/login';
+                return;
+            }
+            const text = await response.text();
+            throw new Error(`Server returned non-JSON response. Status: ${response.status}`);
+        }
+        
         if (!response.ok) {
-            throw new Error(`Server error: ${response.status} ${response.statusText}`);
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Server error: ${response.status} ${response.statusText}`);
         }
         
         const data = await response.json();
@@ -793,14 +830,12 @@ function showImportResult(stats) {
     if (stats.errors && stats.errors.length > 0) {
         html += `<div class="alert alert-warning mt-3">
             <strong>Errors (${stats.errors.length}):</strong>
-            <ul class="mb-0">`;
-        stats.errors.slice(0, 10).forEach(error => {
-            html += `<li>${error}</li>`;
+            <div style="max-height: 500px; overflow-y: auto; margin-top: 10px;">
+                <ul class="mb-0">`;
+        stats.errors.forEach(error => {
+            html += `<li style="margin-bottom: 5px;">${error}</li>`;
         });
-        if (stats.errors.length > 10) {
-            html += `<li>...and ${stats.errors.length - 10} more errors</li>`;
-        }
-        html += '</ul></div>';
+        html += '</ul></div></div>';
     }
     
     html += '</div>';

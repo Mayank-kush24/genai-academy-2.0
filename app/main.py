@@ -59,7 +59,7 @@ verification_lock = threading.Lock()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = Config.FLASK_SECRET_KEY
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['MAX_CONTENT_LENGTH'] = None  # No file size limit
 
 # Create upload folder if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -672,7 +672,10 @@ def get_user_profile(email):
                 'degree_passout_year': user.degree_passout_year,
                 'occupation': user.occupation,
                 'linkedin': user.linkedin,
-                'participated_in_academy_1': user.participated_in_academy_1
+                'participated_in_academy_1': user.participated_in_academy_1,
+                'organization_name': user.organization_name,
+                'domain': user.domain,
+                'designation_years_exp': user.designation_years_exp
             },
             'skillboost_profiles': [{
                 'google_cloud_skills_boost_profile_link': p.google_cloud_skills_boost_profile_link,
@@ -735,6 +738,9 @@ def view_table_data(table_name):
                 'occupation': u.occupation,
                 'linkedin': u.linkedin,
                 'participated_in_academy_1': u.participated_in_academy_1,
+                'organization_name': u.organization_name,
+                'domain': u.domain,
+                'designation_years_exp': u.designation_years_exp,
                 'created_at': str(u.created_at),
                 'updated_at': str(u.updated_at)
             } for u in users]
@@ -834,6 +840,9 @@ def export_table_data(table_name):
                 'Occupation': 'COLLEGE_STUDENT' if u.occupation == 'SCHOOL_STUDENT' else u.occupation,
                 'LinkedIn': u.linkedin,
                 'Participated in Academy 1.0': u.participated_in_academy_1,
+                'Organization Name': u.organization_name,
+                'Domain': u.domain,
+                'Designation (Years Exp)': u.designation_years_exp,
                 'Created At': u.created_at,
                 'Updated At': u.updated_at
             } for u in users])

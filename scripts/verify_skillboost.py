@@ -1016,13 +1016,14 @@ class SkillboostVerifier:
         except Exception as e:
             return False, f"URL parsing error: {str(e)}", None
         
-        # Check domain - must be either www.cloudskillsboost.google, www.skills.google, or www.credly.com
+        # Check domain - must be either www.cloudskillsboost.google, www.skills.google, or www.credly.com/credly.com
         valid_google_domains = ["www.cloudskillsboost.google", "www.skills.google"]
+        valid_credly_domains = ["www.credly.com", "credly.com"]
         is_google_badge = parsed_url.netloc in valid_google_domains
-        is_credly_badge = parsed_url.netloc == "www.credly.com"
+        is_credly_badge = parsed_url.netloc in valid_credly_domains
         
         if not (is_google_badge or is_credly_badge):
-            return False, f"Incorrect Domain (must be {', '.join(valid_google_domains)} or www.credly.com)", None
+            return False, f"Incorrect Domain (must be {', '.join(valid_google_domains)} or {' or '.join(valid_credly_domains)})", None
         
         # Validate path based on domain
         if is_google_badge:
@@ -1031,9 +1032,20 @@ class SkillboostVerifier:
                 return False, "Incorrect Path (must be /public_profiles/{id}/badges/{badge_id})", None
         
         elif is_credly_badge:
-            # Check path - must match /badges/{badge_id}
-            if not re.match(r'^/badges/[a-zA-Z0-9\-]+', parsed_url.path):
-                return False, "Incorrect Path (must be /badges/{badge_id})", None
+            # Check path - must match /badges/{badge_id} or /badges/{badge_id}/public_url
+            # Accept both formats: /badges/xxx and /badges/xxx/public_url
+            if not re.match(r'^/badges/[a-zA-Z0-9\-]+(/public_url)?/?$', parsed_url.path):
+                # Provide more specific error message based on the actual path
+                if parsed_url.path.startswith('/users/'):
+                    return False, "Incorrect Path: This is a user profile URL, not a badge URL", None
+                elif parsed_url.path.startswith('/images/'):
+                    return False, "Incorrect Path: This is an image URL, not a badge URL", None
+                elif parsed_url.path == '/badges/' or parsed_url.path == '/badges':
+                    return False, "Incorrect Path: Badge ID is missing", None
+                elif ' ' in parsed_url.path:
+                    return False, "Incorrect Path: URL contains spaces (please remove spaces)", None
+                else:
+                    return False, f"Incorrect Path (must be /badges/{{badge_id}} or /badges/{{badge_id}}/public_url, got: {parsed_url.path[:50]})", None
         
         # Extract course name from badge page
         course_name, error = self.extract_course_from_badge(badge_url)
@@ -1082,7 +1094,9 @@ class SkillboostVerifier:
             # Small random delay to distribute load
             time.sleep(random.uniform(0.1, 0.5))
             
-            if not profile_link or profile_link.strip() == '':
+            # Check for empty or "-" profile links
+            profile_link_clean = profile_link.strip() if profile_link else ''
+            if not profile_link_clean or profile_link_clean == '' or profile_link_clean == '-':
                 return {
                     'email': email,
                     'valid': False,
@@ -1094,26 +1108,110 @@ class SkillboostVerifier:
             
             return {
                 'email': email,
+                'profile_link': profile_link,  # Include profile_link for composite key lookup
                 'valid': valid,
                 'remarks': remarks
             }
         except Exception as e:
             return {
                 'email': email,
+                'profile_link': profile_link,  # Include profile_link for composite key lookup
                 'valid': False,
                 'remarks': f'Verification error: {str(e)}'
             }
     
-    def verify_profiles(self, limit=None, force_reverify=False):
+    def mark_dash_links_invalid(self, table_type='both'):
+        """Mark all pending records with "-", empty, or None links as invalid (FALSE)
+        
+        Args:
+            table_type: 'badges', 'profiles', or 'both'
+        """
+        db_session = db_manager.get_session()
+        
+        try:
+            updated_count = 0
+            
+            if table_type in ['badges', 'both']:
+                # Mark badge records with "-", empty, or None links as invalid
+                badges_with_invalid_links = db_session.query(Course).filter(
+                    Course.valid.is_(None),  # Only pending records
+                    or_(
+                        Course.share_skill_badge_public_link == '-',
+                        Course.share_skill_badge_public_link == '',
+                        Course.share_skill_badge_public_link.is_(None)
+                    )
+                ).all()
+                
+                for badge in badges_with_invalid_links:
+                    badge.valid = False
+                    if badge.share_skill_badge_public_link == '-':
+                        badge.remarks = 'No badge link provided (link is "-")'
+                    elif badge.share_skill_badge_public_link == '' or badge.share_skill_badge_public_link is None:
+                        badge.remarks = 'No badge link provided (link is empty or missing)'
+                    else:
+                        badge.remarks = 'No badge link provided'
+                    badge.updated_at = datetime.utcnow()
+                    updated_count += 1
+                
+                if badges_with_invalid_links:
+                    db_session.commit()
+                    print(f"✓ Marked {len(badges_with_invalid_links)} pending badge records with invalid links ('-', empty, or None) as FALSE")
+            
+            if table_type in ['profiles', 'both']:
+                # Mark profile records with "-", empty, or None links as invalid
+                profiles_with_invalid_links = db_session.query(SkillboostProfile).filter(
+                    SkillboostProfile.valid.is_(None),  # Only pending records
+                    or_(
+                        SkillboostProfile.google_cloud_skills_boost_profile_link == '-',
+                        SkillboostProfile.google_cloud_skills_boost_profile_link == '',
+                        SkillboostProfile.google_cloud_skills_boost_profile_link.is_(None)
+                    )
+                ).all()
+                
+                for profile in profiles_with_invalid_links:
+                    profile.valid = False
+                    if profile.google_cloud_skills_boost_profile_link == '-':
+                        profile.remarks = 'No profile link provided (link is "-")'
+                    elif profile.google_cloud_skills_boost_profile_link == '' or profile.google_cloud_skills_boost_profile_link is None:
+                        profile.remarks = 'No profile link provided (link is empty or missing)'
+                    else:
+                        profile.remarks = 'No profile link provided'
+                    profile.updated_at = datetime.utcnow()
+                    updated_count += 1
+                
+                if profiles_with_invalid_links:
+                    db_session.commit()
+                    print(f"✓ Marked {len(profiles_with_invalid_links)} pending profile records with invalid links ('-', empty, or None) as FALSE")
+            
+            if updated_count == 0:
+                print("✓ No pending records with invalid links found")
+            
+            return updated_count
+            
+        except Exception as e:
+            print(f"Error marking '-' links as invalid: {e}")
+            db_session.rollback()
+            return 0
+        finally:
+            db_manager.close_session(db_session)
+    
+    def verify_profiles(self, limit=None, force_reverify=False, pending_only=False):
         """Verify all unverified Skillboost profiles using parallel processing
         
         Args:
             limit: Maximum number of profiles to verify
             force_reverify: If True, reverify ALL profiles regardless of their current status
+            pending_only: If True, verify ONLY pending profiles (valid is NULL) - explicit mode
         """
+        # First, mark all pending records with "-" links as invalid
+        self.mark_dash_links_invalid('profiles')
+        
         db_session = db_manager.get_session()
         
         try:
+            # Refresh session to see updated records
+            db_session.expire_all()
+            
             # Get profiles that need verification
             if force_reverify:
                 # Include ALL profiles (verified, failed, or pending) for re-verification
@@ -1124,7 +1222,7 @@ class SkillboostVerifier:
                     SkillboostProfile.google_cloud_skills_boost_profile_link != '-'
                 )
             else:
-                # Only get profiles that are unverified (valid is NULL)
+                # Only get profiles that are unverified (valid is NULL) - pending only
                 query = db_session.query(SkillboostProfile).filter(
                     SkillboostProfile.valid.is_(None),
                     SkillboostProfile.google_cloud_skills_boost_profile_link.isnot(None),
@@ -1137,11 +1235,27 @@ class SkillboostVerifier:
             
             profiles = query.all()
             
-            print(f"\nVerifying {len(profiles)} Skillboost profiles using {self.max_workers} parallel workers...")
+            # Debug: Show count of pending records
+            total_pending = db_session.query(SkillboostProfile).filter(
+                SkillboostProfile.valid.is_(None)
+            ).count()
+            print(f"\n[DEBUG] Total pending profiles in database: {total_pending}")
+            print(f"[DEBUG] Profiles with valid links (excluding '-'): {len(profiles)}")
+            
+            if len(profiles) == 0:
+                print(f"\n✓ No pending profiles found to verify.")
+                print(f"  (All profiles are either verified, failed, or have '-' links)")
+                if total_pending > 0:
+                    print(f"  Note: There are {total_pending} pending profiles, but they may have '-' links")
+                return
+            
+            print(f"\nVerifying {len(profiles)} PENDING Skillboost profiles using {self.max_workers} parallel workers...")
             print(f"Estimated time: ~{len(profiles) // self.max_workers // 60} minutes")
             print(f"Note: Verification checks URL validity and accessibility only (no name matching)")
             if force_reverify:
                 print("Mode: Force re-verification - ALL profiles will be reverified")
+            elif pending_only:
+                print("Mode: PENDING ONLY - Only verifying profiles with valid=NULL")
             
             # Prepare profile data for parallel processing
             profile_data_list = []
@@ -1166,23 +1280,31 @@ class SkillboostVerifier:
                     completed += 1
                     result = future.result()
                     
-                    # Update database
+                    # Update database - use composite key (email + profile_link)
                     profile = db_session.query(SkillboostProfile).filter_by(
-                        email=result['email']
+                        email=result['email'],
+                        google_cloud_skills_boost_profile_link=result.get('profile_link')
                     ).first()
                     
                     if profile:
-                        profile.valid = result['valid']
-                        profile.remarks = result['remarks']
+                        # Handle None results - mark as failed if verification couldn't complete
+                        if result['valid'] is None:
+                            profile.valid = False
+                            profile.remarks = result.get('remarks', 'Verification failed: Could not verify profile')
+                            print(f"    [WARNING] Profile verification returned None for {result['email'][:30]}... - marking as FAILED")
+                        else:
+                            profile.valid = result['valid']
+                            profile.remarks = result['remarks']
+                        
                         profile.updated_at = datetime.utcnow()
                         
                         with self.stats_lock:
-                            if result['valid']:
+                            if profile.valid is True:
                                 self.stats['profiles_verified'] += 1
                                 status = '✓'
                             else:
                                 self.stats['profiles_failed'] += 1
-                                status = f"✗ ({result['remarks'][:30]}...)"
+                                status = f"✗ ({profile.remarks[:30]}...)"
                         
                         # Print progress
                         if completed % 10 == 0:
@@ -1191,10 +1313,20 @@ class SkillboostVerifier:
                         # Commit every 50 records
                         if completed % 50 == 0:
                             db_session.commit()
+                            print(f"    [DEBUG] Committed batch at {completed} records")
+                    else:
+                        print(f"    [WARNING] Profile not found for email: {result['email'][:30]}... with link: {result.get('profile_link', 'N/A')[:50]}...")
             
             # Final commit
             db_session.commit()
             print(f"\n  Completed: {completed}/{len(profiles)}")
+            print(f"  [DEBUG] Final commit completed - {self.stats['profiles_verified']} verified, {self.stats['profiles_failed']} failed")
+            
+            # Verify the commit by checking pending count
+            remaining_pending = db_session.query(SkillboostProfile).filter(
+                SkillboostProfile.valid.is_(None)
+            ).count()
+            print(f"  [DEBUG] Remaining pending profiles in database: {remaining_pending}")
             
         except Exception as e:
             print(f"\nError during profile verification: {e}")
@@ -1271,16 +1403,25 @@ class SkillboostVerifier:
                 'completion_date': None
             }
     
-    def verify_badges(self, limit=None, force_reverify=False):
+    def verify_badges(self, limit=None, force_reverify=False, failed_only=False, include_failed=False, pending_only=False):
         """Verify all unverified course badges using parallel processing
         
         Args:
             limit: Maximum number of badges to verify
             force_reverify: If True, reverify ALL badges regardless of their current status (including date validation)
+            failed_only: If True, verify ONLY failed badges (valid=False)
+            include_failed: If True, verify both pending (valid=None) AND failed badges (valid=False)
+            pending_only: If True, verify ONLY pending badges (valid is NULL) - explicit mode
         """
+        # First, mark all pending records with "-" links as invalid
+        self.mark_dash_links_invalid('badges')
+        
         db_session = db_manager.get_session()
         
         try:
+            # Refresh session to see updated records
+            db_session.expire_all()
+            
             # Get badges that need verification
             if force_reverify:
                 # Include ALL badges (verified, failed, or pending) for re-verification
@@ -1291,8 +1432,26 @@ class SkillboostVerifier:
                     Course.share_skill_badge_public_link != '-',
                     Course.share_skill_badge_public_link != ''
                 )
+            elif failed_only:
+                # Only get badges that have FAILED (valid is FALSE)
+                # Exclude records with "-" or empty badge links
+                query = db_session.query(Course).filter(
+                    Course.valid == False,
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.share_skill_badge_public_link != '-',
+                    Course.share_skill_badge_public_link != ''
+                )
+            elif include_failed:
+                # Get badges that are either unverified (NULL) or failed (FALSE)
+                # Exclude records with "-" or empty badge links
+                query = db_session.query(Course).filter(
+                    or_(Course.valid.is_(None), Course.valid == False),
+                    Course.share_skill_badge_public_link.isnot(None),
+                    Course.share_skill_badge_public_link != '-',
+                    Course.share_skill_badge_public_link != ''
+                )
             else:
-                # Only get badges that are unverified (valid is NULL)
+                # Only get badges that are unverified (valid is NULL) - pending only
                 # Exclude records with "-" or empty badge links
                 query = db_session.query(Course).filter(
                     Course.valid.is_(None),
@@ -1306,10 +1465,30 @@ class SkillboostVerifier:
             
             badges = query.all()
             
-            print(f"\nVerifying {len(badges)} course badges using {self.max_workers} parallel workers...")
+            # Debug: Show count of pending records
+            total_pending = db_session.query(Course).filter(
+                Course.valid.is_(None)
+            ).count()
+            print(f"\n[DEBUG] Total pending badges in database: {total_pending}")
+            print(f"[DEBUG] Badges with valid links (excluding '-'): {len(badges)}")
+            
+            if len(badges) == 0:
+                print(f"\n✓ No pending badges found to verify.")
+                print(f"  (All badges are either verified, failed, or have '-' links)")
+                if total_pending > 0:
+                    print(f"  Note: There are {total_pending} pending badges, but they may have '-' links")
+                return
+            
+            print(f"\nVerifying {len(badges)} PENDING course badges using {self.max_workers} parallel workers...")
             print(f"Estimated time: ~{len(badges) // self.max_workers // 60} minutes")
             if force_reverify:
                 print("Mode: Force re-verification - ALL badges will be reverified (including date validation >= 2025-10-27)")
+            elif failed_only:
+                print("Mode: Re-verifying FAILED badges only (valid=False)")
+            elif include_failed:
+                print("Mode: Verifying PENDING and FAILED badges (valid=None or valid=False)")
+            elif pending_only:
+                print("Mode: PENDING ONLY - Only verifying badges with valid=NULL")
             
             # Prepare badge data for parallel processing
             badge_data_list = []
@@ -1373,14 +1552,18 @@ class SkillboostVerifier:
                                 badge.remarks = result['remarks']
                                 with self.stats_lock:
                                     self.stats['badges_failed'] += 1
-                                    status = f"✗ ({result['remarks'][:30]}...)"
+                                status = f"✗ ({result['remarks'][:30]}...)"
                             badge.updated_at = datetime.utcnow()
                         else:
-                            # Verification pending, but still update date if extracted
-                            badge.remarks = result['remarks']
+                            # Verification returned None (extraction error) - mark as failed
+                            # This means we couldn't verify it, so it should be marked as failed, not pending
+                            badge.valid = False
+                            badge.remarks = result.get('remarks', 'Verification failed: Could not extract course information')
+                            badge.updated_at = datetime.utcnow()
                             with self.stats_lock:
-                                self.stats['badges_pending'] += 1
-                            status = f"⚠ ({result['remarks'][:30]}...)"
+                                self.stats['badges_failed'] += 1
+                            status = f"✗ ({result.get('remarks', 'Verification error')[:30]}...)"
+                            print(f"    [WARNING] Badge verification returned None for {result['email'][:30]}... - marking as FAILED")
                             # Note: completion_date was already updated above if extracted
                         
                         # Print progress
@@ -1416,7 +1599,7 @@ class SkillboostVerifier:
         print("="*60)
 
 
-def run_verification(profiles=True, badges=True, limit=None, max_workers=10, force_reverify=False):
+def run_verification(profiles=True, badges=True, limit=None, max_workers=10, force_reverify=False, failed_only=False, include_failed=False, pending_only=False):
     """Main verification function
     
     Args:
@@ -1425,14 +1608,17 @@ def run_verification(profiles=True, badges=True, limit=None, max_workers=10, for
         limit: Limit number of records
         max_workers: Number of parallel workers
         force_reverify: If True, reverify ALL badges regardless of status (including date validation)
+        failed_only: If True, verify ONLY failed badges (valid=False)
+        include_failed: If True, verify both pending and failed badges
+        pending_only: If True, verify ONLY pending records (valid=NULL) - explicit mode
     """
     verifier = SkillboostVerifier(max_workers=max_workers)
     
     if profiles:
-        verifier.verify_profiles(limit=limit, force_reverify=force_reverify)
+        verifier.verify_profiles(limit=limit, force_reverify=force_reverify, pending_only=pending_only)
     
     if badges:
-        verifier.verify_badges(limit=limit, force_reverify=force_reverify)
+        verifier.verify_badges(limit=limit, force_reverify=force_reverify, failed_only=failed_only, include_failed=include_failed, pending_only=pending_only)
     
     verifier.print_summary()
 
@@ -1446,6 +1632,9 @@ def main():
     parser.add_argument('--limit', type=int, help='Limit number of records to verify')
     parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers (default: 10, recommended: 5-20)')
     parser.add_argument('--force-reverify', action='store_true', help='Reverify ALL badges regardless of status (will validate date >= 2025-10-27)')
+    parser.add_argument('--failed-only', action='store_true', help='Re-verify ONLY failed badges (valid=False)')
+    parser.add_argument('--include-failed', action='store_true', help='Verify both pending (valid=None) AND failed badges (valid=False)')
+    parser.add_argument('--pending-only', action='store_true', help='Verify ONLY pending records (valid=NULL) - explicit pending mode')
     
     args = parser.parse_args()
     
@@ -1462,14 +1651,31 @@ def main():
     print("="*60)
     print("Starting Skillboost Verification with Parallel Processing")
     print(f"Workers: {args.workers}")
-    if args.force_reverify:
+    if args.pending_only:
+        print("Mode: PENDING ONLY - Verifying only records with valid=NULL")
+    elif args.force_reverify:
         print("Mode: Force re-verification (will reverify ALL badges and validate date >= 2025-10-27)")
+    elif args.failed_only:
+        print("Mode: Re-verifying FAILED badges only (valid=False)")
+    elif args.include_failed:
+        print("Mode: Verifying PENDING and FAILED badges (valid=None or valid=False)")
+    else:
+        print("Mode: PENDING (default) - Verifying only records with valid=NULL")
     print("="*60)
     
     profiles = not args.badges_only
     badges = not args.profiles_only
     
-    run_verification(profiles=profiles, badges=badges, limit=args.limit, max_workers=args.workers, force_reverify=args.force_reverify)
+    # If pending_only is set, ensure we're not conflicting with other modes
+    if args.pending_only and (args.force_reverify or args.failed_only or args.include_failed):
+        print("⚠ Warning: --pending-only conflicts with other modes. Using --pending-only mode.")
+        args.force_reverify = False
+        args.failed_only = False
+        args.include_failed = False
+    
+    run_verification(profiles=profiles, badges=badges, limit=args.limit, max_workers=args.workers, 
+                    force_reverify=args.force_reverify, failed_only=args.failed_only, include_failed=args.include_failed,
+                    pending_only=args.pending_only)
 
 
 if __name__ == '__main__':

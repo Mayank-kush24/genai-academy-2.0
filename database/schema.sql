@@ -14,11 +14,14 @@ CREATE TABLE IF NOT EXISTS user_pii (
     city VARCHAR(100),
     date_of_birth DATE,
     designation VARCHAR(255),
-    class_stream VARCHAR(100),
-    degree_passout_year INTEGER,
+    class_stream VARCHAR(1000),
+    degree_passout_year VARCHAR(1000),
     occupation VARCHAR(255),
     linkedin VARCHAR(500),
     participated_in_academy_1 BOOLEAN DEFAULT FALSE,
+    organization_name VARCHAR(1000),
+    domain VARCHAR(1000),
+    designation_years_exp VARCHAR(1000),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -26,6 +29,8 @@ CREATE TABLE IF NOT EXISTS user_pii (
 -- Index for faster searches
 CREATE INDEX IF NOT EXISTS idx_user_pii_name ON user_pii(name);
 CREATE INDEX IF NOT EXISTS idx_user_pii_phone ON user_pii(phone_number);
+CREATE INDEX IF NOT EXISTS idx_user_pii_organization ON user_pii(organization_name);
+CREATE INDEX IF NOT EXISTS idx_user_pii_domain ON user_pii(domain);
 
 -- ============================================
 -- Table 2: Courses (Badge Submissions)

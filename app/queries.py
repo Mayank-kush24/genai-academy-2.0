@@ -1,6 +1,7 @@
 """
 Optimized database queries for common operations
 """
+import re
 from datetime import date
 from sqlalchemy import func, case, and_, or_
 from app.database import UserPII, Course, SkillboostProfile, MasterClass, MasterLog
@@ -361,13 +362,172 @@ def get_demographic_statistics(session):
         func.count(UserPII.email).label('count')
     ).group_by(UserPII.participated_in_academy_1).all()
     
+    # Age distribution (calculate from date_of_birth)
+    from datetime import datetime
+    dob_records = session.query(
+        UserPII.date_of_birth
+    ).filter(
+        UserPII.date_of_birth.isnot(None)
+    ).all()
+    
+    # Calculate ages and group into age ranges
+    today = datetime.now().date()
+    age_groups = {
+        'Under 18': 0,
+        '18-21': 0,
+        '22-25': 0,
+        '26-34': 0,
+        '35-44': 0,
+        '45-54': 0,
+        '55+': 0
+    }
+    
+    for (dob,) in dob_records:
+        if dob:
+            # Calculate age
+            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            
+            if age < 18:
+                age_groups['Under 18'] += 1
+            elif age <= 21:
+                age_groups['18-21'] += 1
+            elif age <= 25:
+                age_groups['22-25'] += 1
+            elif age <= 34:
+                age_groups['26-34'] += 1
+            elif age <= 44:
+                age_groups['35-44'] += 1
+            elif age <= 54:
+                age_groups['45-54'] += 1
+            else:
+                age_groups['55+'] += 1
+    
+    # Convert to list format, maintaining order (include all groups even if 0)
+    age_order = ['Under 18', '18-21', '22-25', '26-34', '35-44', '45-54', '55+']
+    age_stats = [{'label': age, 'count': age_groups[age]} for age in age_order]
+    
+    # Organization distribution (Top 100)
+    organization_stats = session.query(
+        UserPII.organization_name,
+        func.count(UserPII.email).label('count')
+    ).filter(
+        UserPII.organization_name.isnot(None),
+        UserPII.organization_name != ''
+    ).group_by(UserPII.organization_name).order_by(func.count(UserPII.email).desc()).limit(100).all()
+    
+    # Colleges distribution (Top 100) - Organizations where occupation is COLLEGE_STUDENT or SCHOOL_STUDENT
+    college_stats = session.query(
+        UserPII.organization_name,
+        func.count(UserPII.email).label('count')
+    ).filter(
+        UserPII.organization_name.isnot(None),
+        UserPII.organization_name != '',
+        UserPII.occupation.in_(['COLLEGE_STUDENT', 'SCHOOL_STUDENT'])
+    ).group_by(UserPII.organization_name).order_by(func.count(UserPII.email).desc()).limit(100).all()
+    
+    # Domain distribution (Top 10)
+    domain_stats = session.query(
+        UserPII.domain,
+        func.count(UserPII.email).label('count')
+    ).filter(
+        UserPII.domain.isnot(None),
+        UserPII.domain != ''
+    ).group_by(UserPII.domain).order_by(func.count(UserPII.email).desc()).limit(10).all()
+    
+    # Designation Years Exp distribution (Top 10) - Extract designation without years of experience
+    designation_raw = session.query(
+        UserPII.designation_years_exp
+    ).filter(
+        UserPII.designation_years_exp.isnot(None),
+        UserPII.designation_years_exp != ''
+    ).all()
+    
+    # Parse and group by designation (remove years of experience part)
+    designation_consolidated = {}
+    designation_display_names = {}  # Store the display name (title case) for each key
+    for (desig_value,) in designation_raw:
+        if desig_value:
+            desig_str = str(desig_value).strip()
+            # Remove patterns like "( 1 )", "( 2 )", "(3)", "(5+)" - just numbers in parentheses
+            cleaned = re.sub(r'\s*\(\s*\d+\+?\s*\)\s*$', '', desig_str)
+            # Also remove "(X years)" or "(X+ years)" pattern
+            cleaned = re.sub(r'\s*\(\s*\d+\+?\s*(?:year|years|yrs?|exp|experience).*?\)\s*$', '', cleaned, flags=re.IGNORECASE)
+            # Also try pattern like "Developer - 5 years" or "Engineer, 3 years exp"
+            cleaned = re.sub(r'\s*[-,]\s*\d+\+?\s*(?:year|years|yrs?|exp|experience).*$', '', cleaned, flags=re.IGNORECASE)
+            cleaned = cleaned.strip()
+            
+            if cleaned:
+                # Use lowercase key for case-insensitive grouping
+                key = cleaned.lower()
+                designation_consolidated[key] = designation_consolidated.get(key, 0) + 1
+                # Store title case version for display (keep first occurrence or title case)
+                if key not in designation_display_names:
+                    designation_display_names[key] = cleaned.title()
+            else:
+                # If cleaning resulted in empty string, use original
+                key = desig_str.lower()
+                designation_consolidated[key] = designation_consolidated.get(key, 0) + 1
+                if key not in designation_display_names:
+                    designation_display_names[key] = desig_str.title()
+    
+    # Sort by count and get top 50, using display names (more items for scrollable view)
+    designation_exp_stats = [
+        (designation_display_names[key], count) 
+        for key, count in sorted(designation_consolidated.items(), key=lambda x: x[1], reverse=True)[:50]
+    ]
+    
+    # Degree distribution (Top 10) - Extract degree abbreviation from format like "Bachelor of technology(B.Tech)(2027)"
+    degree_raw = session.query(
+        UserPII.degree_passout_year
+    ).filter(
+        UserPII.degree_passout_year.isnot(None),
+        UserPII.degree_passout_year != ''
+    ).all()
+    
+    # Parse and group by degree abbreviation (extract text inside first parentheses)
+    degree_consolidated = {}
+    for (degree_value,) in degree_raw:
+        if degree_value:
+            # Try to extract abbreviation from parentheses, e.g., "B.Tech" from "Bachelor of technology(B.Tech)(2027)"
+            match = re.search(r'\(([^)]+)\)', str(degree_value))
+            if match:
+                degree_abbr = match.group(1).strip()
+                # Skip if it looks like a year (4 digits)
+                if not re.match(r'^\d{4}$', degree_abbr):
+                    degree_consolidated[degree_abbr] = degree_consolidated.get(degree_abbr, 0) + 1
+                else:
+                    # If first match is year, try to use the full value or find another pattern
+                    degree_consolidated[degree_value] = degree_consolidated.get(degree_value, 0) + 1
+            else:
+                # No parentheses, use the full value
+                degree_consolidated[degree_value] = degree_consolidated.get(degree_value, 0) + 1
+    
+    # Sort by count and get top 10
+    degree_stats = sorted(degree_consolidated.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    # Class/Stream distribution (Top 10)
+    class_stream_stats = session.query(
+        UserPII.class_stream,
+        func.count(UserPII.email).label('count')
+    ).filter(
+        UserPII.class_stream.isnot(None),
+        UserPII.class_stream != ''
+    ).group_by(UserPII.class_stream).order_by(func.count(UserPII.email).desc()).limit(10).all()
+    
     return {
         'gender': [{'label': g.gender, 'count': g.count} for g in gender_stats],
         'country': [{'label': c.country, 'count': c.count} for c in country_stats],
         'state': [{'label': s.state, 'count': s.count} for s in state_stats],
         'city': [{'label': c.city, 'count': c.count} for c in city_stats],
         'occupation': occupation_stats,
-        'academy1': [{'label': 'Yes' if a.participated_in_academy_1 else 'No', 'count': a.count} for a in academy1_stats]
+        'academy1': [{'label': 'Yes' if a.participated_in_academy_1 else 'No', 'count': a.count} for a in academy1_stats],
+        'organization': [{'label': o.organization_name, 'count': o.count} for o in organization_stats],
+        'college': [{'label': c.organization_name, 'count': c.count} for c in college_stats],
+        'domain': [{'label': d.domain, 'count': d.count} for d in domain_stats],
+        'designation_exp': [{'label': de[0], 'count': de[1]} for de in designation_exp_stats],
+        'degree': [{'label': dg[0], 'count': dg[1]} for dg in degree_stats],
+        'class_stream': [{'label': cs.class_stream, 'count': cs.count} for cs in class_stream_stats],
+        'age': age_stats
     }
 
 

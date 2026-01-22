@@ -25,11 +25,15 @@ class UserPII(Base):
     city = Column(String(100))
     date_of_birth = Column(Date)
     designation = Column(String(255))
-    class_stream = Column(String(100))
-    degree_passout_year = Column(Text)  # Changed from Integer to Text to accommodate full degree info
+    class_stream = Column(String(1000))  # Class/Stream
+    degree_passout_year = Column(String(1000))  # Degree (Passout year)
     occupation = Column(String(255))
     linkedin = Column(String(500))
     participated_in_academy_1 = Column(Boolean, default=False)
+    # New columns added
+    organization_name = Column(String(1000))  # College/School/Company/Startup Name
+    domain = Column(String(1000))  # Domain
+    designation_years_exp = Column(String(1000))  # Designation (Year of exp.)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
     

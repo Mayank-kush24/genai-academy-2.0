@@ -84,13 +84,26 @@ class CSVImporter:
                     row_dict = {k: v for k, v in row_dict.items() if pd.notna(v)}
                     
                     # Data type conversions
+                    # Fields that should never be converted to boolean (text/URL fields)
+                    text_fields_excluded_from_bool = [
+                        'google_cloud_skills_boost_profile_link',
+                        'share_skill_badge_public_link',
+                        'link',
+                        'linkedin',
+                        'remarks',
+                        'problem_statement',
+                        'master_class_name',
+                        'platform'
+                    ]
+                    
                     for key, value in row_dict.items():
                         if isinstance(value, str):
-                            # Boolean conversion
-                            if value.strip().lower() in ['yes', 'true', '1']:
-                                row_dict[key] = True
-                            elif value.strip().lower() in ['no', 'false', '0']:
-                                row_dict[key] = False
+                            # Boolean conversion - exclude text/URL fields
+                            if key not in text_fields_excluded_from_bool:
+                                if value.strip().lower() in ['yes', 'true', '1']:
+                                    row_dict[key] = True
+                                elif value.strip().lower() in ['no', 'false', '0']:
+                                    row_dict[key] = False
                             # Time format conversion (MM:SS to minutes) for watch_time and total_duration
                             elif key in ['watch_time', 'total_duration', 'time_watched'] and ':' in value:
                                 try:
@@ -409,7 +422,8 @@ def get_table_columns(table_name):
         'user_pii': [
             'email', 'name', 'phone_number', 'gender', 'country', 'state', 'city',
             'date_of_birth', 'designation', 'class_stream', 'degree_passout_year',
-            'occupation', 'linkedin', 'participated_in_academy_1'
+            'occupation', 'linkedin', 'participated_in_academy_1',
+            'organization_name', 'domain', 'designation_years_exp'
         ],
         'courses': [
             'email', 'problem_statement', 'share_skill_badge_public_link', 'valid', 'remarks'

@@ -233,7 +233,7 @@
         <!-- Demographics Charts -->
         <h2 class="section-title">Demographics</h2>
         <div class="row mb-4">
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <div class="card">
                     <div class="card-header">
                         <i class="bi bi-gender-ambiguous"></i> Gender Distribution
@@ -245,7 +245,19 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-calendar3"></i> Age Distribution
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="ageChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
                 <div class="card">
                     <div class="card-header">
                         <i class="bi bi-briefcase"></i> Occupation Distribution
@@ -280,6 +292,92 @@
                     <div class="card-body">
                         <div class="chart-container">
                             <canvas id="cityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Organization & Education Charts -->
+        <h2 class="section-title">Organization & Education</h2>
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-building-fill"></i> Top 100 Organizations
+                    </div>
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                        <div class="chart-container" style="height: 2500px; min-height: 2500px;">
+                            <canvas id="organizationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-mortarboard"></i> Top 100 Colleges
+                    </div>
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                        <div class="chart-container" style="height: 2500px; min-height: 2500px;">
+                            <canvas id="collegeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-layers"></i> Top 10 Domains
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 350px;">
+                            <canvas id="domainChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-mortarboard-fill"></i> Top 10 Degrees (Passout Year)
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 350px;">
+                            <canvas id="degreeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-journal-bookmark-fill"></i> Top 10 Class/Stream
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 350px;">
+                            <canvas id="classStreamChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-person-badge-fill"></i> Top 50 Designations
+                    </div>
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                        <div class="chart-container" style="height: 1500px; min-height: 1500px;">
+                            <canvas id="designationExpChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -402,10 +500,19 @@
         
         // Charts
         renderGenderChart(demographics.gender);
+        renderAgeChart(demographics.age);
         renderOccupationChart(demographics.occupation);
         renderStateChart(demographics.state);
         renderCityChart(demographics.city);
         renderCourseStatsChart(courses);
+        
+        // New charts for additional PII fields
+        renderOrganizationChart(demographics.organization);
+        renderCollegeChart(demographics.college);
+        renderDomainChart(demographics.domain);
+        renderDegreeChart(demographics.degree);
+        renderClassStreamChart(demographics.class_stream);
+        renderDesignationExpChart(demographics.designation_exp);
     }
     
     function renderTopPerformers(performers) {
@@ -449,6 +556,46 @@
                 plugins: {
                     legend: {
                         position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderAgeChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('ageChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label),
+                datasets: [{
+                    label: 'Users',
+                    data: data.map(d => d.count),
+                    backgroundColor: [
+                        '#ff6384', '#36a2eb', '#4bc0c0', '#ffce56', '#9966ff', '#ff9f40', '#c45850'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.parsed.y.toLocaleString() + ' users';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
                     }
                 }
             }
@@ -590,6 +737,240 @@
                     },
                     y: {
                         stacked: true,
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderOrganizationChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('organizationChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label && d.label.length > 30 ? d.label.substring(0, 30) + '...' : d.label),
+                datasets: [{
+                    label: 'Users',
+                    data: data.map(d => d.count),
+                    backgroundColor: '#6f42c1'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return data[context[0].dataIndex].label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderCollegeChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('collegeChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label && d.label.length > 30 ? d.label.substring(0, 30) + '...' : d.label),
+                datasets: [{
+                    label: 'Students',
+                    data: data.map(d => d.count),
+                    backgroundColor: '#20c997'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return data[context[0].dataIndex].label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderDomainChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('domainChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.label && d.label.length > 20 ? d.label.substring(0, 20) + '...' : d.label),
+                datasets: [{
+                    data: data.map(d => d.count),
+                    backgroundColor: [
+                        '#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3',
+                        '#03a9f4', '#00bcd4', '#009688', '#4caf50', '#8bc34a'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            boxWidth: 12,
+                            font: { size: 10 }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return data[context[0].dataIndex].label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderDegreeChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('degreeChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label && d.label.length > 25 ? d.label.substring(0, 25) + '...' : d.label),
+                datasets: [{
+                    label: 'Users',
+                    data: data.map(d => d.count),
+                    backgroundColor: '#ff9800'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return data[context[0].dataIndex].label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderClassStreamChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('classStreamChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: data.map(d => d.label && d.label.length > 20 ? d.label.substring(0, 20) + '...' : d.label),
+                datasets: [{
+                    data: data.map(d => d.count),
+                    backgroundColor: [
+                        '#00bfa5', '#00acc1', '#039be5', '#1e88e5', '#3949ab',
+                        '#5e35b1', '#8e24aa', '#d81b60', '#f4511e', '#fb8c00'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            boxWidth: 12,
+                            font: { size: 10 }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return data[context[0].dataIndex].label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderDesignationExpChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const ctx = document.getElementById('designationExpChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label && d.label.length > 30 ? d.label.substring(0, 30) + '...' : d.label),
+                datasets: [{
+                    label: 'Users',
+                    data: data.map(d => d.count),
+                    backgroundColor: '#795548'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',  // Horizontal bars for better readability
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return data[context[0].dataIndex].label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
                         beginAtZero: true
                     }
                 }
